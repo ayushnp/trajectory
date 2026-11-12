@@ -1,0 +1,29 @@
+listen:
+  host: 127.0.0.1
+  port: 18081
+upstream:
+  base_url: "http://127.0.0.1:18080"
+  connect_timeout_s: 10
+  read_timeout_s: 600        # generous: models can think for minutes
+data_dir: data
+add_trace_header: true
+sample_rate: 1.0              # 1.0 = record everything
+store_content: true
+retention_days: 7
+redact_patterns:
+  - "sk-[A-Za-z0-9]{16,}"
+  - "Bearer\\s+[A-Za-z0-9._-]{16,}"
+green:
+  enabled: true
+  mode: library               # library | http
+  timeout_s: 5
+  cache_ttl_days: 30
+  model_map: config/model_map.yaml
+  assumptions:
+    region: unknown
+queue:
+  maxsize: 10000
+  fsync_interval_s: 5
+chain:
+  candidate_ttl_s: 1800
+  max_steps: 500
