@@ -18,7 +18,8 @@ green:
   mode: library               # the only supported mode (no data leaves the machine)
   model_map: config/model_map.yaml
   assumptions:
-    region: unknown
+    region: EU          # all Tux models are hosted in the EU (country unknown)
+    zone: EEE           # EcoLogits' EU-wide electricity mix; set a country code (e.g. SWE) if known
 queue:
   maxsize: 10000
   fsync_interval_s: 5

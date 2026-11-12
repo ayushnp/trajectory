@@ -101,7 +101,7 @@ def test_region_changes_emissions_but_not_energy():
     fra = est(assumptions={"region": "FRA", "zone": "FRA"}).estimate(rec())
     assert fra["energy_kwh"] == world["energy_kwh"]
     assert fra["gwp_kgco2eq"]["mean"] < world["gwp_kgco2eq"]["mean"]
-    assert "world-average" in world["note"] and "world-average" not in fra["note"]
+    assert "US" in world["note"] and "FRA" in fra["note"] and "US) electricity" not in fra["note"]
 
 
 def test_library_warnings_are_passed_through():
@@ -176,3 +176,29 @@ def test_silencing_the_library_logger_does_not_break_it():
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
     assert out.stdout.strip() == "ok", out.stderr
     assert "not released" not in out.stderr          # the console stays quiet
+
+
+EU = {"region": "EU", "zone": "EEE"}
+
+
+def test_eu_zone_is_applied_and_lowers_emissions_versus_the_library_default():
+    default = est().estimate(rec())
+    eu = est(assumptions=EU).estimate(rec())
+    assert eu["energy_kwh"] == default["energy_kwh"]                       # zone never changes energy
+    assert eu["gwp_kgco2eq"]["mean"] < default["gwp_kgco2eq"]["mean"]
+    assert eu["inputs"]["region"] == "EU"
+
+
+def test_note_states_the_assumption_it_actually_made():
+    eu = est(assumptions=EU).estimate(rec())["note"]
+    assert "EEE" in eu and "EU" in eu and "average over several countries" in eu
+    assert "PUE/WUE" in eu                                                  # the part we did NOT localise
+    assert "world" not in eu.lower()
+    none = est(assumptions={"region": "unknown"}).estimate(rec())["note"]
+    assert "US" in none and "world" not in none.lower()
+
+
+def test_shipped_config_uses_the_eu_mix():
+    import yaml
+    cfg = yaml.safe_load(open("config/config.yaml", encoding="utf-8"))
+    assert cfg["green"]["assumptions"]["zone"] == "EEE"

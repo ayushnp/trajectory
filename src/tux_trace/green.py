@@ -158,9 +158,22 @@ class Estimator:
             "water_l": res.get("water_l"),
             "warnings": res["warnings"],
             "assumptions_sha256": self.assumptions_sha256,
-            "note": "; ".join([NOTE, "input tokens are not part of the EcoLogits energy model"]
-                              + (["region unknown, world-average electricity mix assumed"] if zone is None else [])),
+            "note": self._note(zone),
         }
+
+    def _note(self, zone: str | None) -> str:
+        """Say exactly what was assumed. Only the electricity mix is region-specific; the datacenter
+        PUE / water factors stay at the provider defaults EcoLogits ships (US-based), because we have
+        no data on Tux's facilities."""
+        parts = [NOTE, "input tokens are not part of the EcoLogits energy model"]
+        if zone is None:
+            parts.append("no region set: EcoLogits' default (US) electricity mix assumed")
+        else:
+            label = self.assumptions.get("region", zone)
+            parts.append(f"electricity mix: {zone} ({label}); if {zone} is an average over several countries, "
+                         "real emissions depend on which one")
+        parts.append("datacenter PUE/WUE are EcoLogits provider defaults, not Tux-specific")
+        return "; ".join(parts)
 
     def _compute(self, provider, target, out, latency_s, zone) -> dict:
         from ecologits.tracers.utils import llm_impacts
