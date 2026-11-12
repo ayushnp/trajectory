@@ -4,6 +4,8 @@ from __future__ import annotations
 import time
 from collections import deque
 
+from .record import BUDGET
+
 
 class Stats:
     def __init__(self) -> None:
@@ -12,6 +14,7 @@ class Stats:
         self.calls_incomplete = 0
         self.calls_error = 0
         self.record_errors = 0
+        self.calls_sampled_out = 0
         self._overhead_ms: deque[float] = deque(maxlen=5000)
 
     def observe_overhead_ns(self, ns: int) -> None:
@@ -33,6 +36,12 @@ class Stats:
             "records_written": tee.writer.written if tee else 0,
             "record_errors": self.record_errors + (tee.writer.write_errors if tee else 0),
             "queue_depth": tee.depth if tee else 0,
+            "calls_sampled_out": self.calls_sampled_out,
+            "capture_bytes_in_use": BUDGET.used,
+            "capture_budget_denied": BUDGET.denied,
+            "content_stored": tee.writer.content.stored if tee and tee.writer.content else 0,
+            "content_errors": tee.writer.content.errors if tee and tee.writer.content else 0,
+            "index_errors": tee.writer.index_errors if tee else 0,
             "chain_errors": tee.writer.chain_errors if tee else 0,
             "green_errors": tee.writer.green.errors if tee and tee.writer.green else 0,
             "unknown_green_share": tee.writer.unknown_green_share if tee else None,

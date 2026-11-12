@@ -17,11 +17,15 @@ MAX_BATCH = 500
 
 class JsonlWriter:
     def __init__(self, q: queue.Queue, data_dir: str | Path, fsync_interval_s: float = 5.0,
-                 chainer=None, pairer=None, attacher=None, green=None) -> None:
+                 chainer=None, pairer=None, attacher=None, green=None,
+                 content=None, index=None) -> None:
         self.q = q
         self.pairer = pairer
         self.attacher = attacher
         self.green = green
+        self.content = content           # ContentStore or None
+        self.index = index               # SqliteIndex or None
+        self.index_errors = 0
         self.chainer = chainer          # runs here, on the writer thread: no locks needed
         self.chain_errors = 0
         self.dir = Path(data_dir) / "calls"
@@ -79,12 +83,15 @@ class JsonlWriter:
 
     def _write_batch(self, batch: list[dict]) -> None:
         lines: dict[str, list[str]] = {}
+        indexed: list[dict] = []
         for item in batch:
             try:
                 rec = item.to_record() if hasattr(item, "to_record") else item
             except Exception:
                 self.write_errors += 1
                 log.exception("failed to build record")
+                if hasattr(item, "release"):
+                    item.release()          # the contract: captured bytes are always freed
                 continue
             if self.chainer is not None:
                 try:
@@ -109,15 +116,39 @@ class JsonlWriter:
                     log.exception("subagent attachment failed")
             if self.green is not None:
                 rec["green"] = self.green.estimate(rec)       # never raises; errors become status=error
+            self._store_content(item, rec)
             self._count(item, rec)
             day = (rec.get("timing", {}).get("received_at") or "")[:10] \
                 or datetime.now(timezone.utc).strftime("%Y-%m-%d")
             lines.setdefault(day, []).append(json.dumps(rec, separators=(",", ":"), ensure_ascii=False))
+            indexed.append(rec)
         for day, ls in lines.items():
             fh = self._open(day)
             fh.write("\n".join(ls) + "\n")
             fh.flush()
         self.written += sum(len(v) for v in lines.values())
+        if self.index is not None and indexed:
+            try:                 # the index is rebuildable from JSONL, so its failure never loses data
+                self.index.upsert(indexed)
+            except Exception:
+                self.index_errors += 1
+                log.exception("sqlite index update failed")
+
+    def _store_content(self, item, rec: dict) -> None:
+        """Write the content file (if enabled), then ALWAYS free the captured bytes."""
+        try:
+            if self.content is not None and self.content.enabled and hasattr(item, "content_parts"):
+                from .content import decode_response
+                req, chunks, enc = item.content_parts()
+                path = self.content.save(rec["call_id"], req, decode_response(chunks, enc),
+                                         meta={"format": rec["request"]["format"], "path": rec["request"]["path"]})
+                if path:
+                    rec["content"] = {"stored": True, "path": path}
+        except Exception:
+            log.exception("content step failed")
+        finally:
+            if hasattr(item, "release"):
+                item.release()
 
     @property
     def unknown_green_share(self):

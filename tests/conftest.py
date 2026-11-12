@@ -66,6 +66,17 @@ def make_stub(chunks, delay=0.0, log=None):
     ])
 
 
+@pytest.fixture(autouse=True)
+def _never_write_to_the_real_data_dir():
+    """Fail loudly if a test creates records under ./data, which is where live traffic is traced."""
+    from pathlib import Path
+    real = Path("data") / "calls"
+    before = {f: f.stat().st_size for f in real.glob("*.jsonl")} if real.exists() else {}
+    yield
+    after = {f: f.stat().st_size for f in real.glob("*.jsonl")} if real.exists() else {}
+    assert after == before, "a test wrote to the real ./data directory; give its Config a tmp_path data_dir"
+
+
 @pytest.fixture
 def proxy_factory(tmp_path):
     stack = []

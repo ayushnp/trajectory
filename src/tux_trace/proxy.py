@@ -85,6 +85,9 @@ def _finish(state, trace: CallTrace | None) -> None:
             state.stats.calls_incomplete += 1
         if state.cfg.sample_rate >= 1.0 or _sampled(trace, state.cfg.sample_rate):
             state.tee.submit(trace)
+        else:
+            state.stats.calls_sampled_out += 1
+            trace.release()
     except Exception:
         state.stats.record_errors += 1
         log.exception("could not finish trace")

@@ -232,7 +232,9 @@ def test_calltrace_builds_full_record_from_real_anthropic_stream():
     assert rec["usage"]["output"] == {"value": 10, "reported": True}
     assert rec["timing"]["ttft_any_ms"] > 0 and rec["timing"]["ttft_visible_ms"] > 0
     assert rec["outcome"]["incomplete"] is False
-    assert tr.resp_chunks == [] and not tr.req_body    # captured bytes released
+    assert tr.resp_chunks and tr.req_body              # still held: the content store may need them
+    tr.release()
+    assert tr.resp_chunks == [] and not tr.req_body    # freed on release()
 
 
 def test_truncated_stream_is_incomplete_even_if_transport_finished():

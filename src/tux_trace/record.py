@@ -26,6 +26,38 @@ from .parsers.sse import SSEReader
 CAPTURE_CAP = 16 * 1024 * 1024  # per direction, per call; beyond this we stop copying
 
 
+class CaptureBudget:
+    """Process-wide ceiling on bytes held for parsing. Single event-loop thread reserves, writer
+    thread returns. When spent, new calls capture nothing (the record says capture_truncated).
+    A lock keeps the counter exact across the two threads."""
+
+    def __init__(self, limit_bytes: int) -> None:
+        import threading
+        self.limit = limit_bytes
+        self.used = 0
+        self.denied = 0
+        self._lock = threading.Lock()
+
+    def configure(self, limit_bytes: int) -> None:
+        with self._lock:
+            self.limit = limit_bytes
+
+    def reserve(self, n: int) -> bool:
+        with self._lock:
+            if self.used + n > self.limit:
+                self.denied += 1
+                return False
+            self.used += n
+            return True
+
+    def give_back(self, n: int) -> None:
+        with self._lock:
+            self.used = max(0, self.used - n)
+
+
+BUDGET = CaptureBudget(512 * 1024 * 1024)   # replaced at startup from config
+
+
 class Metric(BaseModel):
     value: int | None = None
     reported: bool = False
@@ -180,26 +212,30 @@ class CallTrace:
     event_errors: int = 0
     parse_failed: bool = False
     tool_results: list = field(default_factory=list)   # [{id, bytes, is_error}] carried by the request
+    reserved: int = 0                                  # bytes currently charged to the budget
+    budget: object = None                              # defaults to the process-wide BUDGET
     first_text: str | None = None   # transient: matching only, NEVER written to a record
 
     # -- fast-path helpers: plain attribute writes, cannot raise -----------------------------
     def add_req_chunk(self, chunk: bytes) -> None:
         self.body_bytes += len(chunk)
         if not self.req_truncated:
-            if len(self.req_body) + len(chunk) > CAPTURE_CAP:
+            if len(self.req_body) + len(chunk) > CAPTURE_CAP or not (self.budget or BUDGET).reserve(len(chunk)):
                 self.req_truncated = True
             else:
                 self.req_body += chunk
+                self.reserved += len(chunk)
 
     def add_resp_chunk(self, t: int, chunk: bytes) -> None:
         self.chunk_count += 1
         self.resp_bytes += len(chunk)
         if not self.resp_truncated:
-            if self.resp_kept + len(chunk) > CAPTURE_CAP:
+            if self.resp_kept + len(chunk) > CAPTURE_CAP or not (self.budget or BUDGET).reserve(len(chunk)):
                 self.resp_truncated = True
             else:
                 self.resp_chunks.append((t, chunk))
                 self.resp_kept += len(chunk)
+                self.reserved += len(chunk)
 
     # -- slow path: runs on the writer thread ------------------------------------------------
     def _parse_request(self) -> dict:
@@ -326,6 +362,15 @@ class CallTrace:
             usage=Usage(**u) if u else Usage(),
             outcome=Outcome(error=error, client_disconnected=disconnected, incomplete=incomplete),
         )
-        # free the captured bytes as soon as the record exists
-        self.req_body, self.resp_chunks = bytearray(), []
         return rec.model_dump(mode="json")
+
+    def content_parts(self):
+        """(request bytes, response chunks, content-encoding) for the content store. Call before release()."""
+        return bytes(self.req_body), list(self.resp_chunks), self.content_encoding
+
+    def release(self) -> None:
+        """Free the captured bytes. The writer ALWAYS calls this, success or not."""
+        self.req_body, self.resp_chunks, self.resp_kept = bytearray(), [], 0
+        if self.reserved:
+            (self.budget or BUDGET).give_back(self.reserved)
+            self.reserved = 0

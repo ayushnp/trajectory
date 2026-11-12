@@ -141,10 +141,19 @@ async def session_trajectory(request: Request) -> JSONResponse:
 
 
 async def call_content(request: Request) -> JSONResponse:
-    # Content storage is not built (store_content has no effect yet): say so rather than 404 silently.
-    if request.app.state.index.get(request.path_params["call_id"]) is None:
+    """Stored (redacted) prompt/response text for one call, when store_content was on."""
+    rec = request.app.state.index.get(request.path_params["call_id"])
+    if rec is None:
         return JSONResponse({"error": "not found"}, 404)
-    return JSONResponse({"stored": False, "reason": "content storage is not implemented"}, 404)
+    c = rec.get("content") or {}
+    if not c.get("stored") or not c.get("path"):
+        return JSONResponse({"stored": False, "reason": "no content was stored for this call"}, 404)
+    root = Path(request.app.state.cfg.data_dir).resolve()
+    path = (root / c["path"]).resolve()
+    # the path comes from our own record, but never serve anything outside the data directory
+    if root not in path.parents or not path.is_file():
+        return JSONResponse({"stored": False, "reason": "content file is gone (retention?)"}, 404)
+    return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
 
 
 async def ui(request: Request) -> FileResponse:

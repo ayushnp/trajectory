@@ -3,6 +3,7 @@
 Run: python tests/bench_latency.py
 """
 import statistics
+import tempfile
 import sys
 import time
 from pathlib import Path
@@ -31,7 +32,7 @@ def pct(v, q):
 
 
 with Server(make_stub([b"data: x\n\n"]), free_port()) as up, \
-        Server(create_app(Config(upstream={"base_url": f"http://127.0.0.1:{up.port}"})), free_port()) as px:
+        Server(create_app(Config(upstream={"base_url": f"http://127.0.0.1:{up.port}"}, data_dir=tempfile.mkdtemp())), free_port()) as px:
     with httpx.Client(trust_env=False) as c:
         sample(c, f"http://127.0.0.1:{up.port}/v1/messages")  # warm-up
         sample(c, f"http://127.0.0.1:{px.port}/v1/messages")

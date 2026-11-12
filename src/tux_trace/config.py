@@ -36,6 +36,7 @@ class Green(_Strict):
 class Queue(_Strict):
     maxsize: int = Field(10_000, ge=1)
     fsync_interval_s: float = Field(5.0, gt=0)
+    capture_budget_mb: int = Field(512, ge=1)   # total bytes held for parsing across ALL in-flight and queued calls
 
 
 class Chain(_Strict):
@@ -52,6 +53,9 @@ class Config(_Strict):
     store_content: bool = True
     retention_days: int = Field(7, ge=1)
     redact_patterns: list[str] = []
+    redact_defaults: bool = True            # also apply the built-in key/token patterns (content.py)
+    retention_interval_s: float = Field(3600, gt=0)
+    sqlite_index: bool = True
     green: Green = Green()
     queue: Queue = Queue()
     chain: Chain = Chain()

@@ -206,4 +206,4 @@ def test_api_endpoints(proxy_factory):
     assert httpx.get(proxy + "/_trace/api/sessions?limit=x").status_code == 400
     cid = t["steps"][0]["call_id"]
     r = httpx.get(proxy + f"/_trace/api/calls/{cid}/content")
-    assert r.status_code == 404 and r.json()["stored"] is False
+    assert r.status_code == 200 and r.json()["redacted"] is True       # content storage is on by default
