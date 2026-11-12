@@ -14,13 +14,13 @@ DROP_LOG_INTERVAL_S = 10.0
 
 class Tee:
     def __init__(self, maxsize: int, data_dir: str | Path, fsync_interval_s: float = 5.0,
-                 start_writer: bool = True, chainer=None) -> None:
+                 start_writer: bool = True, chainer=None, pairer=None) -> None:
         self.q: queue.Queue = queue.Queue(maxsize=maxsize)
         self.dropped_records = 0
         self.submitted = 0
         self._last_drop_log = 0.0
         self._dropped_since_log = 0
-        self.writer = JsonlWriter(self.q, data_dir, fsync_interval_s, chainer)
+        self.writer = JsonlWriter(self.q, data_dir, fsync_interval_s, chainer, pairer)
         if start_writer:
             self.writer.start()
 

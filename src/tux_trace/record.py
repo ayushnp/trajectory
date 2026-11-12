@@ -19,6 +19,7 @@ from . import timing as timing_mod
 from . import usage as usage_mod
 from .chain import digest_request
 from .parsers import make_parser
+from .tools import extract_results
 from .parsers.sse import SSEReader
 
 CAPTURE_CAP = 16 * 1024 * 1024  # per direction, per call; beyond this we stop copying
@@ -48,6 +49,7 @@ class Request(BaseModel):
     prefix_digests: list[str] = []      # per-message, 16 hex chars; the chainer's input
     human_indexes: list[int] = []       # which messages are human turns (not tool results)
     opaque_reasoning: bool = False      # history contained reasoning we hash around, never decode
+    tool_results: list[dict] = []       # results this request delivers, joined to the calls they answer
 
 
 class Timing(BaseModel):
@@ -171,6 +173,7 @@ class CallTrace:
     unknown_events: int = 0
     event_errors: int = 0
     parse_failed: bool = False
+    tool_results: list = field(default_factory=list)   # [{id, bytes, is_error}] carried by the request
 
     # -- fast-path helpers: plain attribute writes, cannot raise -----------------------------
     def add_req_chunk(self, chunk: bytes) -> None:
@@ -219,6 +222,10 @@ class CallTrace:
             d = digest_request(self.fmt, body)
             if d is not None:
                 info["prefix_digests"], info["human_indexes"], info["opaque_reasoning"] = d
+        except Exception:
+            self.parse_failed = True
+        try:
+            self.tool_results = extract_results(self.fmt, body)
         except Exception:
             self.parse_failed = True
         return info

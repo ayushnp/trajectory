@@ -15,6 +15,7 @@ from .chain import Chainer
 from .config import Config
 from .proxy import make_client, relay
 from .stats import Stats
+from .tools import ToolPairer
 from .tee import Tee
 
 # NOTE: deliberately no GZipMiddleware / compression of any kind (spec §25).
@@ -65,5 +66,6 @@ def create_app(cfg: Config) -> Starlette:
     app.state.stats = Stats()
     app.state.index = api.RecordIndex(cfg.data_dir)
     app.state.tee = Tee(cfg.queue.maxsize, cfg.data_dir, cfg.queue.fsync_interval_s,
-                        chainer=Chainer(cfg.chain.candidate_ttl_s, cfg.chain.max_steps))
+                        chainer=Chainer(cfg.chain.candidate_ttl_s, cfg.chain.max_steps),
+                        pairer=ToolPairer(cfg.chain.candidate_ttl_s))
     return app

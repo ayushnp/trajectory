@@ -14,6 +14,8 @@ from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from .tools import join_results
+
 STATIC = Path(__file__).parent / "static"
 MAX_IN_MEMORY = 20_000
 
@@ -26,10 +28,15 @@ class RecordIndex:
         self._by_id: dict[str, dict] = {}
         self._lock = threading.Lock()
 
+    def _join(self, records: list[dict]) -> None:
+        """Fold tool results back onto the calls they answer. Done on read: JSONL is append-only."""
+        join_results(records)
+
     def refresh(self) -> None:
         with self._lock:
             if not self.dir.exists():
                 return
+            added = False
             for f in sorted(self.dir.glob("*.jsonl")):
                 pos = self._offsets.get(f, 0)
                 if f.stat().st_size <= pos:
@@ -46,6 +53,9 @@ class RecordIndex:
                     self._records.append(rec)
                     self._by_id[rec["call_id"]] = rec
                 self._offsets[f] = pos + end
+                added = True
+            if added:
+                self._join(self._records)
             if len(self._records) > MAX_IN_MEMORY:
                 for old in self._records[:-MAX_IN_MEMORY]:
                     self._by_id.pop(old["call_id"], None)
