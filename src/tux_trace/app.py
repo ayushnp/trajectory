@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from . import api
+from .chain import Chainer
 from .config import Config
 from .proxy import make_client, relay
 from .stats import Stats
@@ -63,5 +64,6 @@ def create_app(cfg: Config) -> Starlette:
     app.state.cfg = cfg
     app.state.stats = Stats()
     app.state.index = api.RecordIndex(cfg.data_dir)
-    app.state.tee = Tee(cfg.queue.maxsize, cfg.data_dir, cfg.queue.fsync_interval_s)
+    app.state.tee = Tee(cfg.queue.maxsize, cfg.data_dir, cfg.queue.fsync_interval_s,
+                        chainer=Chainer(cfg.chain.candidate_ttl_s, cfg.chain.max_steps))
     return app

@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from . import timing as timing_mod
 from . import usage as usage_mod
+from .chain import digest_request
 from .parsers import make_parser
 from .parsers.sse import SSEReader
 
@@ -44,7 +45,9 @@ class Request(BaseModel):
     tool_count: int | None = None
     body_bytes: int = 0
     system_prompt_sha256: str | None = None
-    prefix_digests: list[str] = []
+    prefix_digests: list[str] = []      # per-message, 16 hex chars; the chainer's input
+    human_indexes: list[int] = []       # which messages are human turns (not tool results)
+    opaque_reasoning: bool = False      # history contained reasoning we hash around, never decode
 
 
 class Timing(BaseModel):
@@ -108,6 +111,8 @@ class CallRecord(BaseModel):
     step_index: int | None = None
     turn_index: int | None = None
     parent_call_id: str | None = None
+    continued_from_session: str | None = None
+    compaction_suspected: bool = False
     client: Client
     request: Request
     timing: Timing
@@ -210,6 +215,12 @@ class CallTrace:
         if system:
             text = system if isinstance(system, str) else json.dumps(system, sort_keys=True)
             info["system_prompt_sha256"] = hashlib.sha256(text.encode()).hexdigest()
+        try:   # chaining input is best-effort: failing here must not lose the other request facts
+            d = digest_request(self.fmt, body)
+            if d is not None:
+                info["prefix_digests"], info["human_indexes"], info["opaque_reasoning"] = d
+        except Exception:
+            self.parse_failed = True
         return info
 
     def _decoded_chunks(self) -> list:

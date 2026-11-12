@@ -16,8 +16,11 @@ MAX_BATCH = 500
 
 
 class JsonlWriter:
-    def __init__(self, q: queue.Queue, data_dir: str | Path, fsync_interval_s: float = 5.0) -> None:
+    def __init__(self, q: queue.Queue, data_dir: str | Path, fsync_interval_s: float = 5.0,
+                 chainer=None) -> None:
         self.q = q
+        self.chainer = chainer          # runs here, on the writer thread: no locks needed
+        self.chain_errors = 0
         self.dir = Path(data_dir) / "calls"
         self.fsync_interval_s = fsync_interval_s
         self.written = 0
@@ -78,6 +81,12 @@ class JsonlWriter:
                 self.write_errors += 1
                 log.exception("failed to build record")
                 continue
+            if self.chainer is not None:
+                try:
+                    self.chainer.assign(rec)
+                except Exception:       # fail open: an unchained record is still a record
+                    self.chain_errors += 1
+                    log.exception("chainer failed")
             self._count(item, rec)
             day = (rec.get("timing", {}).get("received_at") or "")[:10] \
                 or datetime.now(timezone.utc).strftime("%Y-%m-%d")
