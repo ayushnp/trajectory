@@ -10,6 +10,22 @@ const ms = (v) => (v == null ? NA : v >= 1000 ? (v / 1000).toFixed(2) + " s" : M
 const metric = (m) => (m && m.reported && m.value != null ? m.value.toLocaleString() : NA);
 const clock = (iso) => new Date(iso).toLocaleTimeString([], { hour12: false });
 
+// Energy is always shown as a range, never a bare number, and always marked as an estimate.
+// A non-exact basis (hand-mapped or fallback model) is flagged so it is not mistaken for exact.
+function sci(v) {
+  if (v === 0) return "0";
+  const e = Math.floor(Math.log10(Math.abs(v)));
+  const m = v / Math.pow(10, e);
+  return m.toFixed(1) + "e" + e;
+}
+function greenCell(g) {
+  if (!g || g.status === "disabled") return NA;
+  if (g.status !== "ok") return `<span class="tag" title="${esc(g.reason || g.error || "")}">${esc(g.status)}</span>`;
+  const r = g.energy_kwh;
+  const basis = g.basis === "exact" ? "" : ` <span class="tag warn" title="model not in the EcoLogits registry: ${g.basis}">${g.basis}</span>`;
+  return `<span title="min ${sci(r.min)} / mean ${sci(r.mean)} / max ${sci(r.max)} kWh. Estimated, not measured.">~${sci(r.min)}&ndash;${sci(r.max)}</span>${basis}`;
+}
+
 function flags(c) {
   const out = [];
   if (c.error) out.push(`<span class="tag bad" title="${esc(JSON.stringify(c.error))}">error</span>`);
@@ -35,6 +51,7 @@ function row(c) {
     <td class="num">${metric(c.usage.output)}</td>
     <td class="num">${metric(c.usage.cache_read)}</td>
     <td class="num">${metric(c.usage.cache_write)}</td>
+    <td class="num">${greenCell(c.green)}</td>
     <td>${c.stop_reason ? esc(c.stop_reason) : NA}</td>
     <td>${tools}</td>
     <td>${flags(c)}</td>
@@ -77,6 +94,13 @@ async function showDetail(id) {
     ["chunks", `${t.chunk_count} · inter-chunk p50 ${ms(t.inter_chunk_p50_ms)} · p95 ${ms(t.inter_chunk_p95_ms)}`],
     ["tokens", `in ${metric(u.input_total)} · out ${metric(u.output)} · cache read ${metric(u.cache_read)} · cache write ${metric(u.cache_write)}`],
     ["provider-native usage", esc(JSON.stringify(u.raw || {}))],
+    ["energy (est.)", c.green && c.green.status === "ok"
+        ? `${sci(c.green.energy_kwh.min)} .. ${sci(c.green.energy_kwh.max)} kWh (mean ${sci(c.green.energy_kwh.mean)}) · basis ${c.green.basis}`
+        : (c.green ? c.green.status : "—")],
+    ["emissions (est.)", c.green && c.green.status === "ok"
+        ? `${sci(c.green.gwp_kgco2eq.min)} .. ${sci(c.green.gwp_kgco2eq.max)} kgCO2eq`
+        : "—"],
+    ["green caveats", c.green && c.green.status === "ok" ? `${c.green.note} · ${(c.green.warnings || []).join(", ")}` : "—"],
     ["thinking", c.response.thinking_visibility || "—"],
     ["outcome", esc(JSON.stringify(c.outcome))],
   ].map(([k, v]) => `<dt>${k}</dt><dd>${k === "tokens" || k.startsWith("TTFT") || k.startsWith("total") || k === "chunks" ? v : esc(v)}</dd>`).join("");

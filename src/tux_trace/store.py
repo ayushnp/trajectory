@@ -17,10 +17,11 @@ MAX_BATCH = 500
 
 class JsonlWriter:
     def __init__(self, q: queue.Queue, data_dir: str | Path, fsync_interval_s: float = 5.0,
-                 chainer=None, pairer=None, attacher=None) -> None:
+                 chainer=None, pairer=None, attacher=None, green=None) -> None:
         self.q = q
         self.pairer = pairer
         self.attacher = attacher
+        self.green = green
         self.chainer = chainer          # runs here, on the writer thread: no locks needed
         self.chain_errors = 0
         self.dir = Path(data_dir) / "calls"
@@ -31,6 +32,8 @@ class JsonlWriter:
         self.parse_unknown_events = 0
         self.parsed_calls = 0
         self.usage_unreported = 0
+        self.green_total = 0
+        self.green_not_ok = 0
         self._thread = threading.Thread(target=self._run, name="jsonl-writer", daemon=True)
         self._last_fsync = time.monotonic()
         self._fh = None
@@ -104,6 +107,8 @@ class JsonlWriter:
                 except Exception:       # fail open: an unattached call is still a record
                     self.chain_errors += 1
                     log.exception("subagent attachment failed")
+            if self.green is not None:
+                rec["green"] = self.green.estimate(rec)       # never raises; errors become status=error
             self._count(item, rec)
             day = (rec.get("timing", {}).get("received_at") or "")[:10] \
                 or datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -114,7 +119,15 @@ class JsonlWriter:
             fh.flush()
         self.written += sum(len(v) for v in lines.values())
 
+    @property
+    def unknown_green_share(self):
+        return round(self.green_not_ok / self.green_total, 4) if self.green_total else None
+
     def _count(self, item, rec: dict) -> None:
+        if rec.get("green", {}).get("status") not in (None, "disabled") and rec["request"].get("format") != "unknown":
+            self.green_total += 1
+            if rec["green"]["status"] != "ok":
+                self.green_not_ok += 1
         self.parse_unknown_events += getattr(item, "unknown_events", 0)
         self.parse_errors += getattr(item, "event_errors", 0) + (1 if getattr(item, "parse_failed", False) else 0)
         ok = (rec.get("response", {}).get("status") or 0) < 400

@@ -95,6 +95,7 @@ def _row(r: dict) -> dict:
         "error": r["outcome"]["error"],
         "harness": r["client"]["harness_hint"],
         "session_id": r.get("session_id"),
+        "green": r.get("green"),
     }
 
 

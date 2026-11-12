@@ -98,7 +98,8 @@ class Outcome(BaseModel):
 
 
 class Green(BaseModel):
-    status: str = "disabled"  # M6 turns this on
+    model_config = {"extra": "allow"}   # the block is built by green.Estimator
+    status: str = "disabled"
 
 
 class Content(BaseModel):

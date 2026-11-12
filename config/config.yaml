@@ -15,9 +15,7 @@ redact_patterns:
   - "Bearer\\s+[A-Za-z0-9._-]{16,}"
 green:
   enabled: true
-  mode: library               # library | http
-  timeout_s: 5
-  cache_ttl_days: 30
+  mode: library               # the only supported mode (no data leaves the machine)
   model_map: config/model_map.yaml
   assumptions:
     region: unknown

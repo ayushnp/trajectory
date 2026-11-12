@@ -1,0 +1,11 @@
+# Tux model id -> EcoLogits model.  basis says how much to trust the match:
+#   exact     the id exists in EcoLogits' registry under that provider (no entry needed here)
+#   proxy     we mapped it by hand to the closest registry model
+#   fallback  nothing known; a default stands in. Shown distinctly in the UI.
+#
+# Models listed by Tux that EcoLogits 0.11.3 does NOT know: gpt-6.1-terra, deepseek-v4-pro.
+
+"gpt-6.1-terra":   { provider: openai,    target: "gpt-5.6-terra",  basis: proxy }    # sibling tier, previous generation
+# No honest equivalent is known for deepseek-v4-pro; it falls through to the fallback below.
+
+"*":               { provider: openai,    target: "gpt-5.5",        basis: fallback }

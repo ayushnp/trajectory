@@ -34,6 +34,8 @@ class Stats:
             "record_errors": self.record_errors + (tee.writer.write_errors if tee else 0),
             "queue_depth": tee.depth if tee else 0,
             "chain_errors": tee.writer.chain_errors if tee else 0,
+            "green_errors": tee.writer.green.errors if tee and tee.writer.green else 0,
+            "unknown_green_share": tee.writer.unknown_green_share if tee else None,
             "unattached_rate": tee.writer.attacher.unattached_rate if tee and tee.writer.attacher else None,
             "subagents_attached": tee.writer.attacher.attached if tee and tee.writer.attacher else 0,
             "subagents_unattached": tee.writer.attacher.unattached if tee and tee.writer.attacher else 0,

@@ -28,9 +28,7 @@ class Upstream(_Strict):
 
 class Green(_Strict):
     enabled: bool = True
-    mode: Literal["library", "http"] = "library"
-    timeout_s: float = Field(5, gt=0)
-    cache_ttl_days: int = Field(30, ge=0)
+    mode: Literal["library"] = "library"      # the HTTP API mode was deliberately not built
     model_map: str = "config/model_map.yaml"
     assumptions: dict[str, Any] = {"region": "unknown"}
 
