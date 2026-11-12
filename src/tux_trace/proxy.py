@@ -104,7 +104,7 @@ async def relay(request: Request) -> Response:
     async def counted_body() -> AsyncIterator[bytes]:
         async for chunk in request.stream():
             if trace is not None:
-                trace.body_bytes += len(chunk)
+                trace.add_req_chunk(chunk)
             yield chunk
 
     # Our own handling time ends when we hand the request to the HTTP client (spec section 18).
@@ -131,13 +131,14 @@ async def relay(request: Request) -> Response:
     if trace is not None:
         trace.t_headers = time.monotonic_ns()
         trace.status = upstream.status
+        trace.content_type = upstream.headers.get("content-type")
+        trace.content_encoding = upstream.headers.get("content-encoding")
 
     async def body() -> AsyncIterator[bytes]:
         try:
             async for chunk in upstream.content.iter_any():
-                if trace is not None:  # plain attribute writes: cannot raise, cannot block
-                    trace.chunk_count += 1
-                    trace.resp_bytes += len(chunk)
+                if trace is not None:  # plain appends: cheap, cannot block; parsing happens later
+                    trace.add_resp_chunk(time.monotonic_ns(), chunk)
                 yield chunk
             if trace is not None:
                 trace.completed = True

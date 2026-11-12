@@ -41,8 +41,9 @@ def test_one_record_per_call_with_transport_facts(proxy_factory):
     assert r["response"]["content_bytes"] == sum(map(len, SSE))
     assert r["timing"]["chunk_count"] >= 1
     assert r["timing"]["t_sent"] >= r["timing"]["t_received"]
-    assert r["timing"]["total_ms"] is not None and r["timing"]["total_ms"] >= 0
-    assert r["outcome"]["incomplete"] is False and r["outcome"]["error"] is None
+    assert r["timing"]["duration_ms"] is not None and r["timing"]["duration_ms"] >= 0
+    assert r["timing"]["total_ms"] is None        # no content deltas in this stub stream
+    assert r["outcome"]["error"] is None
     assert r["client"]["harness_hint"] == "claude-code"
     # unknown-yet fields are null / not-reported, never fabricated zeros
     assert r["timing"]["ttft_any_ms"] is None

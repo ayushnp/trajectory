@@ -22,6 +22,10 @@ class JsonlWriter:
         self.fsync_interval_s = fsync_interval_s
         self.written = 0
         self.write_errors = 0
+        self.parse_errors = 0
+        self.parse_unknown_events = 0
+        self.parsed_calls = 0
+        self.usage_unreported = 0
         self._thread = threading.Thread(target=self._run, name="jsonl-writer", daemon=True)
         self._last_fsync = time.monotonic()
         self._fh = None
@@ -74,6 +78,7 @@ class JsonlWriter:
                 self.write_errors += 1
                 log.exception("failed to build record")
                 continue
+            self._count(item, rec)
             day = (rec.get("timing", {}).get("received_at") or "")[:10] \
                 or datetime.now(timezone.utc).strftime("%Y-%m-%d")
             lines.setdefault(day, []).append(json.dumps(rec, separators=(",", ":"), ensure_ascii=False))
@@ -82,6 +87,15 @@ class JsonlWriter:
             fh.write("\n".join(ls) + "\n")
             fh.flush()
         self.written += sum(len(v) for v in lines.values())
+
+    def _count(self, item, rec: dict) -> None:
+        self.parse_unknown_events += getattr(item, "unknown_events", 0)
+        self.parse_errors += getattr(item, "event_errors", 0) + (1 if getattr(item, "parse_failed", False) else 0)
+        ok = (rec.get("response", {}).get("status") or 0) < 400
+        if rec.get("request", {}).get("format", "unknown") != "unknown" and ok:
+            self.parsed_calls += 1
+            if not rec.get("usage", {}).get("input_total", {}).get("reported"):
+                self.usage_unreported += 1
 
     def _open(self, day: str):
         if self._fh_day != day:
