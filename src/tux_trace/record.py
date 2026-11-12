@@ -118,6 +118,7 @@ class CallRecord(BaseModel):
     continued_from_session: str | None = None
     subagent_edge: dict | None = None   # {parent_call_id, confidence, signals, score}
     unattached: bool = False            # started mid-session; no parent could be established
+    overlapped_sessions: list[str] = []   # sessions with a call open when an unattached child began
     overlap_candidates: int | None = None   # >1 pending calls overlapped and none echoed the prompt
     compaction_suspected: bool = False
     client: Client

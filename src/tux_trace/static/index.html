@@ -9,40 +9,56 @@
 <body>
   <header>
     <h1>tux-trace</h1>
+    <nav>
+      <button class="tab on" data-view="sessions">Sessions</button>
+      <button class="tab" data-view="calls">All calls</button>
+    </nav>
     <div id="stats" class="stats"></div>
     <span id="live" class="live" title="polls every 3 s">&#9679; live</span>
   </header>
-  <main>
-    <section class="pane">
-      <h2>Calls <span id="count" class="muted"></span></h2>
-      <div class="scroll">
-        <table id="calls">
-          <thead>
-            <tr>
-              <th>Time</th><th>Format</th><th>Model</th><th>Status</th>
-              <th class="num" title="time to first content">TTFT</th>
-              <th class="num" title="time to first human-readable text">TTFT&nbsp;text</th>
-              <th class="num" title="request received to last content">Total</th>
-              <th class="num" title="input tokens incl. cache">In</th>
-              <th class="num">Out</th>
-              <th class="num">Cache&nbsp;read</th>
-              <th class="num">Cache&nbsp;write</th>
-              <th class="num" title="estimated energy range, kWh (EcoLogits). Not measured.">Energy&nbsp;est.</th><th>Stop</th><th>Tools</th><th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-        <p id="empty" class="muted" hidden>No calls recorded yet. Point an agent at this proxy and send something.</p>
+
+  <main id="view-sessions" class="three">
+    <section class="pane" id="sessions-pane">
+      <h2>Sessions <span id="scount" class="muted"></span></h2>
+      <div class="scroll"><div id="sessions"></div>
+        <p id="sempty" class="muted" hidden>No sessions yet. Point an agent at this proxy and send something.</p>
       </div>
     </section>
-    <section class="pane" id="detail-pane" hidden>
-      <h2>Call detail <button id="close">close</button></h2>
-      <div id="detail"></div>
+
+    <section class="pane" id="traj-pane">
+      <h2 id="traj-title">Trajectory</h2>
+      <div class="scroll" id="traj"><p class="muted">Select a session.</p></div>
+    </section>
+
+    <section class="pane" id="detail-pane">
+      <h2>Detail</h2>
+      <div class="scroll" id="detail"><p class="muted">Select a step.</p></div>
     </section>
   </main>
+
+  <main id="view-calls" hidden>
+    <section class="pane">
+      <h2>All calls <span id="count" class="muted"></span>
+        <label class="muted" style="float:right"><input type="checkbox" id="show-unknown"> include non-model requests (health probes etc.)</label></h2>
+      <div class="scroll">
+        <table id="calls">
+          <thead><tr>
+            <th>Time</th><th>Format</th><th>Model</th><th>Status</th>
+            <th class="num">TTFT</th><th class="num">TTFT&nbsp;text</th><th class="num">Total</th>
+            <th class="num">In</th><th class="num">Out</th><th class="num">Cache&nbsp;read</th><th class="num">Cache&nbsp;write</th>
+            <th class="num">Energy&nbsp;est.</th><th>Stop</th><th>Tools</th><th></th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+        <p id="empty" class="muted" hidden>No calls recorded yet.</p>
+      </div>
+    </section>
+  </main>
+
   <footer class="muted">
-    &mdash; = not reported by the provider (never shown as 0). Sessions, tool-result gaps, subagents and
-    green metrics arrive in later milestones.
+    &mdash; means <em>not reported</em> by the provider; it is never shown as 0. Energy and emissions are
+    <strong>estimates, not measurements</strong>, always shown as a range. <em>gap</em> is an upper bound on
+    tool time (tool + agent + network + any human wait).
   </footer>
   <script src="/_trace/static/app.js"></script>
 </body>

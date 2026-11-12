@@ -157,6 +157,8 @@ class SubagentAttacher:
                     break
         if pending:            # started mid-session, nothing tied it to one specific parent
             rec["unattached"] = True
+            # which sessions had a call open at that moment, so the UI can show it under them
+            rec["overlapped_sessions"] = sorted({p["session_id"] for p in pending if p["session_id"]})
             self.unattached += 1
 
     @property

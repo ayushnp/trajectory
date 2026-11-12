@@ -196,7 +196,11 @@ class Chainer:
         digests = req.get("prefix_digests") or []
         if not digests:
             return                       # nothing to chain on (unknown path, unparsable body)
-        key = rec["client"].get("key_hash") or "-"
+        # A chain belongs to one client, one wire format and one model. Identical text sent to a
+        # different model (or endpoint) is a separate call, not a retry or a continuation. A model
+        # switch mid-conversation therefore starts a new session; merging unrelated calls would be worse.
+        key = "|".join([rec["client"].get("key_hash") or "-", req.get("format") or "-",
+                        req.get("model_requested") or "-"])
         now = rec["timing"]["t_received"]
         status = rec["response"].get("status")
         ok = status is not None and status < 400   # failed calls get a place but never become heads

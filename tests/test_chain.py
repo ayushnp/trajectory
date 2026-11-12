@@ -27,10 +27,11 @@ def a_assistant(text):
     return {"role": "assistant", "content": [{"type": "text", "text": text}]}
 
 
-def rec(msgs, t=0, key="k", fmt="anthropic", status=200, call_id=None):
-    digests, human, opaque = digest_request(fmt, {"messages": msgs})
+def rec(msgs, t=0, key="k", fmt="anthropic", status=200, call_id=None, model="m1"):
+    digests, human, opaque = digest_request(fmt, {"input" if fmt == "openai_responses" else "messages": msgs})
     return {"client": {"key_hash": key},
-            "request": {"prefix_digests": digests, "human_indexes": human, "opaque_reasoning": opaque},
+            "request": {"prefix_digests": digests, "human_indexes": human, "opaque_reasoning": opaque,
+                        "format": fmt, "model_requested": model},
             "timing": {"t_received": t * S}, "response": {"status": status},
             "outcome": {"retry_index": 0}, "call_id": call_id}
 
@@ -189,7 +190,7 @@ def test_head_memory_is_bounded():
     c = Chainer(max_heads_per_client=10)
     for i in range(500):
         c.assign(rec([a_user(f"unrelated {i}")], i))
-    assert len(c._heads["k"]) <= 10
+    assert max(len(v) for v in c._heads.values()) <= 10 and len(c._heads) == 1
 
 
 # ---------------------------------------------------------------- reasoning is opaque
@@ -257,3 +258,27 @@ def test_garbage_message_shapes_do_not_raise():
         for fmt in ("anthropic", "openai_chat"):
             digest_request(fmt, {"messages": msgs})
     digest_request("openai_responses", {"input": [None, 1, {"type": "message", "content": [None]}]})
+
+
+def test_same_prompt_to_a_different_model_is_not_a_retry_or_continuation():
+    c = Chainer()
+    m = [a_user("Write two sentences about rivers.")]
+    r1, r2 = chain(c, rec(m, 0, model="claude-haiku-5-5"), rec(m, 1, model="claude-sonnet-5-5"))
+    assert r1["session_id"] != r2["session_id"]
+    assert r2["outcome"]["retry_index"] == 0 and r2["step_index"] == 0
+
+
+def test_same_prompt_on_a_different_endpoint_is_a_separate_session():
+    c = Chainer()
+    text = "hello there"
+    a = rec([{"role": "user", "content": text}], 0, fmt="openai_chat", model="gpt-6-luna")
+    b = rec([{"role": "user", "content": text}], 1, fmt="openai_responses", model="gpt-6-luna")
+    chain(c, a, b)
+    assert a["session_id"] != b["session_id"]
+
+
+def test_true_retry_on_the_same_model_is_still_a_retry():
+    c = Chainer()
+    m = [a_user("hi")]
+    r1, r2 = chain(c, rec(m, 0, model="x"), rec(m, 1, model="x"))
+    assert r1["session_id"] == r2["session_id"] and r2["outcome"]["retry_index"] == 1

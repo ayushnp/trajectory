@@ -14,6 +14,7 @@ from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from . import sessions as sess
 from .tools import join_results
 
 STATIC = Path(__file__).parent / "static"
@@ -67,6 +68,11 @@ class RecordIndex:
             ordered = sorted(self._records, key=lambda r: r["timing"]["received_at"], reverse=True)
             return ordered[offset:offset + limit], len(ordered)
 
+    def all(self) -> list[dict]:
+        self.refresh()
+        with self._lock:
+            return list(self._records)
+
     def get(self, call_id: str) -> dict | None:
         self.refresh()
         with self._lock:
@@ -114,6 +120,33 @@ async def call_detail(request: Request) -> JSONResponse:
     return JSONResponse(rec) if rec else JSONResponse({"error": "not found"}, 404)
 
 
+def _paging(request: Request, default: int = 50):
+    limit = max(1, min(int(request.query_params.get("limit", default)), 500))
+    offset = max(0, int(request.query_params.get("offset", 0)))
+    return limit, offset
+
+
+async def sessions_list(request: Request) -> JSONResponse:
+    try:
+        limit, offset = _paging(request)
+    except ValueError:
+        return JSONResponse({"error": "limit/offset must be integers"}, 400)
+    items, total = sess.list_sessions(request.app.state.index.all(), limit, offset)
+    return JSONResponse({"total": total, "sessions": items})
+
+
+async def session_trajectory(request: Request) -> JSONResponse:
+    t = sess.trajectory(request.path_params["session_id"], request.app.state.index.all())
+    return JSONResponse(t) if t else JSONResponse({"error": "not found"}, 404)
+
+
+async def call_content(request: Request) -> JSONResponse:
+    # Content storage is not built (store_content has no effect yet): say so rather than 404 silently.
+    if request.app.state.index.get(request.path_params["call_id"]) is None:
+        return JSONResponse({"error": "not found"}, 404)
+    return JSONResponse({"stored": False, "reason": "content storage is not implemented"}, 404)
+
+
 async def ui(request: Request) -> FileResponse:
     return FileResponse(STATIC / "index.html", headers={"cache-control": "no-store"})
 
@@ -124,5 +157,8 @@ def routes() -> list:
         Route("/_trace/", ui, methods=["GET"]),
         Route("/_trace/api/calls", calls, methods=["GET"]),
         Route("/_trace/api/calls/{call_id}", call_detail, methods=["GET"]),
+        Route("/_trace/api/calls/{call_id}/content", call_content, methods=["GET"]),
+        Route("/_trace/api/sessions", sessions_list, methods=["GET"]),
+        Route("/_trace/api/sessions/{session_id}/trajectory", session_trajectory, methods=["GET"]),
         Mount("/_trace/static", StaticFiles(directory=STATIC), name="static"),
     ]

@@ -5,3 +5,4 @@ __pycache__/
 # recorded calls, content files and the index may contain prompts and credential hashes
 data/
 proxy.log
+data_unattached_demo/
