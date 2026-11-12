@@ -17,9 +17,10 @@ MAX_BATCH = 500
 
 class JsonlWriter:
     def __init__(self, q: queue.Queue, data_dir: str | Path, fsync_interval_s: float = 5.0,
-                 chainer=None, pairer=None) -> None:
+                 chainer=None, pairer=None, attacher=None) -> None:
         self.q = q
         self.pairer = pairer
+        self.attacher = attacher
         self.chainer = chainer          # runs here, on the writer thread: no locks needed
         self.chain_errors = 0
         self.dir = Path(data_dir) / "calls"
@@ -95,6 +96,14 @@ class JsonlWriter:
                 except Exception:       # fail open: unpaired tool calls are still recorded
                     self.chain_errors += 1
                     log.exception("tool pairing failed")
+            if self.attacher is not None:
+                try:
+                    self.attacher.note_results(rec)
+                    self.attacher.assess(rec, getattr(item, "first_text", None))
+                    self.attacher.register(rec)
+                except Exception:       # fail open: an unattached call is still a record
+                    self.chain_errors += 1
+                    log.exception("subagent attachment failed")
             self._count(item, rec)
             day = (rec.get("timing", {}).get("received_at") or "")[:10] \
                 or datetime.now(timezone.utc).strftime("%Y-%m-%d")

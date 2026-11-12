@@ -19,6 +19,7 @@ from . import timing as timing_mod
 from . import usage as usage_mod
 from .chain import digest_request
 from .parsers import make_parser
+from .subagents import first_human_text
 from .tools import extract_results
 from .parsers.sse import SSEReader
 
@@ -114,6 +115,9 @@ class CallRecord(BaseModel):
     turn_index: int | None = None
     parent_call_id: str | None = None
     continued_from_session: str | None = None
+    subagent_edge: dict | None = None   # {parent_call_id, confidence, signals, score}
+    unattached: bool = False            # started mid-session; no parent could be established
+    overlap_candidates: int | None = None   # >1 pending calls overlapped and none echoed the prompt
     compaction_suspected: bool = False
     client: Client
     request: Request
@@ -174,6 +178,7 @@ class CallTrace:
     event_errors: int = 0
     parse_failed: bool = False
     tool_results: list = field(default_factory=list)   # [{id, bytes, is_error}] carried by the request
+    first_text: str | None = None   # transient: matching only, NEVER written to a record
 
     # -- fast-path helpers: plain attribute writes, cannot raise -----------------------------
     def add_req_chunk(self, chunk: bytes) -> None:
@@ -226,6 +231,10 @@ class CallTrace:
             self.parse_failed = True
         try:
             self.tool_results = extract_results(self.fmt, body)
+        except Exception:
+            self.parse_failed = True
+        try:
+            self.first_text = first_human_text(self.fmt, body)
         except Exception:
             self.parse_failed = True
         return info

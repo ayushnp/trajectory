@@ -34,6 +34,9 @@ class Stats:
             "record_errors": self.record_errors + (tee.writer.write_errors if tee else 0),
             "queue_depth": tee.depth if tee else 0,
             "chain_errors": tee.writer.chain_errors if tee else 0,
+            "unattached_rate": tee.writer.attacher.unattached_rate if tee and tee.writer.attacher else None,
+            "subagents_attached": tee.writer.attacher.attached if tee and tee.writer.attacher else 0,
+            "subagents_unattached": tee.writer.attacher.unattached if tee and tee.writer.attacher else 0,
             "parse_errors": tee.writer.parse_errors if tee else 0,
             "parse_unknown_events": tee.writer.parse_unknown_events if tee else 0,
             "unknown_token_share": (round(tee.writer.usage_unreported / tee.writer.parsed_calls, 4)

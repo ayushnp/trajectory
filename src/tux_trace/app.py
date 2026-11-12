@@ -15,6 +15,7 @@ from .chain import Chainer
 from .config import Config
 from .proxy import make_client, relay
 from .stats import Stats
+from .subagents import SubagentAttacher
 from .tools import ToolPairer
 from .tee import Tee
 
@@ -67,5 +68,6 @@ def create_app(cfg: Config) -> Starlette:
     app.state.index = api.RecordIndex(cfg.data_dir)
     app.state.tee = Tee(cfg.queue.maxsize, cfg.data_dir, cfg.queue.fsync_interval_s,
                         chainer=Chainer(cfg.chain.candidate_ttl_s, cfg.chain.max_steps),
-                        pairer=ToolPairer(cfg.chain.candidate_ttl_s))
+                        pairer=ToolPairer(cfg.chain.candidate_ttl_s),
+                        attacher=SubagentAttacher(cfg.chain.candidate_ttl_s))
     return app

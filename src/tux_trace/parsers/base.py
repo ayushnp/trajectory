@@ -30,10 +30,12 @@ class StreamParser:
     def __init__(self) -> None:
         self.r = ParseResult()
         self._tools: dict = {}
+        self._now: int | None = None     # arrival time of the event being handled
 
     # -- driver ----------------------------------------------------------------------------
     def feed(self, ev: SSEEvent) -> None:
         """One bad event must never kill parsing of the rest."""
+        self._now = ev.t
         try:
             data = ev.data.strip()
             if data == "[DONE]":
@@ -80,7 +82,9 @@ class StreamParser:
     def tool(self, key, id=None, name=None, args_add=None, args_set=None) -> None:
         cur = self._tools.get(key)
         if cur is None:
-            cur = self._tools[key] = {"id": None, "name": None, "args": ""}
+            # t_start: monotonic ns of the chunk where this call first appeared. A subagent can be
+            # launched the moment the call shows up, before the parent's stream has finished.
+            cur = self._tools[key] = {"id": None, "name": None, "args": "", "t_start": self._now}
         if id:
             cur["id"] = id
         if name:

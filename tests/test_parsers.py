@@ -13,6 +13,11 @@ FIX = Path(__file__).parent / "fixtures"
 MS = 1_000_000
 
 
+def no_t(calls):
+    """Tool calls without the arrival-time mark, for comparing content only."""
+    return [{k: v for k, v in c.items() if k != "t_start"} for c in calls]
+
+
 def parse(fmt, raw: bytes, chunker=None, t0=0, step=10 * MS):
     """Feed raw SSE bytes through the real reader+parser; chunk i arrives at t0 + i*step."""
     p, rd = make_parser(fmt), SSEReader()
@@ -85,7 +90,7 @@ def test_anthropic_tool_use_whole_and_streamed_and_thinking():
                   "usage": {"output_tokens": 9}})
              + ev("message_stop", {"type": "message_stop"}))
     r = parse("anthropic", whole, step=MS)
-    assert r.tool_calls == [{"id": "toolu_1", "name": "Read", "args": '{"p":"a"}'}]
+    assert no_t(r.tool_calls) == [{"id": "toolu_1", "name": "Read", "args": '{"p":"a"}'}]
     assert r.has_thinking and r.thinking_visibility == "summary"
     assert r.t_first_visible is None and r.t_first_content is not None   # thinking is not "visible"
 
@@ -95,7 +100,7 @@ def test_anthropic_tool_use_whole_and_streamed_and_thinking():
                      "delta": {"type": "input_json_delta", "partial_json": '{"cmd":'}})
                 + ev("content_block_delta", {"type": "content_block_delta", "index": 0,
                      "delta": {"type": "input_json_delta", "partial_json": '"ls"}'}}))
-    assert parse("anthropic", streamed).tool_calls == [{"id": "t9", "name": "Bash", "args": '{"cmd":"ls"}'}]
+    assert no_t(parse("anthropic", streamed).tool_calls) == [{"id": "t9", "name": "Bash", "args": '{"cmd":"ls"}'}]
 
 
 def test_anthropic_unknown_and_garbage_events_are_not_fatal():
@@ -141,7 +146,7 @@ def test_openai_chat_tool_call_fragments_concatenate_by_index():
            + d({"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": "1}"}}]}}]})
            + b"data: [DONE]\n\n")
     r = parse("openai_chat", raw)
-    assert r.tool_calls == [{"id": "c1", "name": "f", "args": '{"a":1}'}, {"id": "c2", "name": "g", "args": "{}"}]
+    assert no_t(r.tool_calls) == [{"id": "c1", "name": "f", "args": '{"a":1}'}, {"id": "c2", "name": "g", "args": "{}"}]
 
 
 # ---------------------------------------------------------------- openai responses
@@ -167,7 +172,7 @@ def test_openai_responses_function_call():
            + ev("response.completed", {"response": {"model": "m", "output": [{"type": "function_call"}],
                                                     "usage": {"input_tokens": 3, "output_tokens": 4}}}))
     r = parse("openai_responses", raw)
-    assert r.tool_calls == [{"id": "call_1", "name": "Read", "args": '{"p":"x"}'}]
+    assert no_t(r.tool_calls) == [{"id": "call_1", "name": "Read", "args": '{"p":"x"}'}]
     assert r.stop_reason == "tool_calls"
 
 
@@ -272,3 +277,17 @@ def test_fixture_chunking_invariance(fmt):
     raw = (FIX / fmt / "simple_text.sse").read_bytes()
     a, b = parse(fmt, raw), parse(fmt, raw, lines_as_chunks)
     assert (a.usage, a.stop_reason, a.model_served, a.terminated) == (b.usage, b.stop_reason, b.model_served, b.terminated)
+
+
+def test_tool_call_records_when_it_first_appeared_not_when_the_stream_ended():
+    def ev(t, o):
+        return f"event: {t}\ndata: {json.dumps(o)}\n\n".encode()
+    from tux_trace.parsers.sse import SSEReader
+    p, rd = make_parser("anthropic"), SSEReader()
+    chunks = [(100 * MS, ev("content_block_start", {"type": "content_block_start", "index": 0,
+                            "content_block": {"type": "tool_use", "id": "t", "name": "Agent", "input": {"prompt": "x"}}})),
+              (900 * MS, ev("message_stop", {"type": "message_stop"}))]
+    for t, c in chunks:
+        for e in rd.feed(c, t):
+            p.feed(e)
+    assert p.finish().tool_calls[0]["t_start"] == 100 * MS
