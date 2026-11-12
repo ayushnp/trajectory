@@ -10,6 +10,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from . import api
 from .config import Config
 from .proxy import make_client, relay
 from .stats import Stats
@@ -54,11 +55,13 @@ def create_app(cfg: Config) -> Starlette:
         routes=[
             Route("/healthz", healthz, methods=["GET"]),
             Route("/stats", stats, methods=["GET"]),
+            *api.routes(),
             Route("/{path:path}", relay, methods=methods),
         ],
         lifespan=lifespan,
     )
     app.state.cfg = cfg
     app.state.stats = Stats()
+    app.state.index = api.RecordIndex(cfg.data_dir)
     app.state.tee = Tee(cfg.queue.maxsize, cfg.data_dir, cfg.queue.fsync_interval_s)
     return app

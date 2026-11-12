@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>tux-trace</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/_trace/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>tux-trace</h1>
+    <div id="stats" class="stats"></div>
+    <span id="live" class="live" title="polls every 3 s">&#9679; live</span>
+  </header>
+  <main>
+    <section class="pane">
+      <h2>Calls <span id="count" class="muted"></span></h2>
+      <div class="scroll">
+        <table id="calls">
+          <thead>
+            <tr>
+              <th>Time</th><th>Format</th><th>Model</th><th>Status</th>
+              <th class="num" title="time to first content">TTFT</th>
+              <th class="num" title="time to first human-readable text">TTFT&nbsp;text</th>
+              <th class="num" title="request received to last content">Total</th>
+              <th class="num" title="input tokens incl. cache">In</th>
+              <th class="num">Out</th>
+              <th class="num">Cache&nbsp;read</th>
+              <th class="num">Cache&nbsp;write</th>
+              <th>Stop</th><th>Tools</th><th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <p id="empty" class="muted" hidden>No calls recorded yet. Point an agent at this proxy and send something.</p>
+      </div>
+    </section>
+    <section class="pane" id="detail-pane" hidden>
+      <h2>Call detail <button id="close">close</button></h2>
+      <div id="detail"></div>
+    </section>
+  </main>
+  <footer class="muted">
+    &mdash; = not reported by the provider (never shown as 0). Sessions, tool-result gaps, subagents and
+    green metrics arrive in later milestones.
+  </footer>
+  <script src="/_trace/static/app.js"></script>
+</body>
+</html>
