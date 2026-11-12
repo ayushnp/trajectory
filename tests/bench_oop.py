@@ -4,7 +4,9 @@ client (so the client's own overhead is negligible).
 Run: python tests/bench_oop.py [extra env as KEY=VAL ...]
 """
 import os
+import shutil
 import socket
+import tempfile
 import subprocess
 import sys
 import time
@@ -19,8 +21,10 @@ BODY = b'{"model":"x"}'
 REQ = (b"POST /v1/messages HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
        b"Content-Length: %d\r\n\r\n" % len(BODY)) + BODY
 
+# The benchmark proxy must NEVER write into the real ./data directory (live traces live there).
+SCRATCH = tempfile.mkdtemp(prefix="tux_bench_")
 env = {**os.environ, "TUX_TRACE_UPSTREAM__BASE_URL": f"http://127.0.0.1:{UP}",
-       "TUX_TRACE_LISTEN__PORT": str(PX)}
+       "TUX_TRACE_LISTEN__PORT": str(PX), "TUX_TRACE_DATA_DIR": SCRATCH}
 for kv in sys.argv[1:]:
     k, v = kv.split("=", 1)
     env[k] = v
@@ -62,3 +66,5 @@ try:
 finally:
     for pr in procs:
         pr.kill()
+    time.sleep(0.3)
+    shutil.rmtree(SCRATCH, ignore_errors=True)
