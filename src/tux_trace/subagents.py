@@ -13,6 +13,18 @@ Scoring (only high and medium are attached)
   echo + overlap -> high      overlap only -> medium      echo only -> low (not attached)
   neither -> no attachment
 
+Parallel and nested subagents
+  * A tool call is claimed by at most one child. Calls already claimed are removed from the
+    candidates for later children, so a parallel batch resolves as its members arrive.
+  * Echo is checked on the child's WHOLE first prompt, not just its first 200 characters, so
+    siblings that share a long preamble are still told apart by what follows it.
+  * If several unclaimed calls echo equally well (identical prompts) nothing separates them: the
+    child is left unattached rather than given a coin-flip labelled "high".
+  * Elimination: when claiming has left exactly one open call, and overlap alone would have been
+    ambiguous, the child attaches at medium with signals ["overlap", "elimination"].
+  * Nested: a subagent's own tool calls are ordinary pending calls of its session, so a grandchild
+    attaches to the subagent's call, not to the outer one that is still open above it.
+
 Calls that are chain roots, start while another session has a pending tool call, but carry no
 echo, go to the `unattached` bucket. They are never guessed into a parent.
 
@@ -90,6 +102,8 @@ class SubagentAttacher:
                     # pending from first appearance: a subagent can start before the parent stream ends
                     "t_open": tc.get("t_start") or rec["timing"].get("t_end"),
                     "name": tc.get("name"), "answered_at": None,
+                    "tool_call_id": tc["id"], "claimed_by": None,
+                    "args_full": normalize_args(tc.get("args") or ""),
                 }
         while len(self._pending) > self.max_pending:
             self._pending.popitem(last=False)
@@ -114,6 +128,7 @@ class SubagentAttacher:
         t = rec["timing"]["t_received"]
         needle = normalize(first_text or "")
         usable_needle = len(needle) >= MIN_ECHO_CHARS
+        full = normalize_args(first_text or "")      # the whole prompt, for telling siblings apart
 
         pending = []       # tool calls from other sessions of this client that are open right now
         for (c, _), p in self._pending.items():
@@ -129,22 +144,35 @@ class SubagentAttacher:
 
         if pending:
             self.child_candidates += 1
-        echoes = [p for p in pending if usable_needle and needle in p["args"]]
+        free = [p for p in pending if p["claimed_by"] is None]      # claimed calls cannot take a second child
+
         chosen, signals, conf = None, [], None
-        if echoes:
-            # echo + overlap is the strongest evidence; if several calls echo, the latest wins
-            chosen, signals, conf = max(echoes, key=lambda p: p["t_open"]), ["echo", "overlap"], "high"
-        elif len(pending) == 1:
-            # overlap alone is only meaningful when exactly one call could have spawned the child.
-            # With several pending calls (e.g. Agent + Read in parallel) picking one is a guess.
-            chosen, signals, conf = pending[0], ["overlap"], "medium"
-        elif len(pending) > 1:
-            rec["overlap_candidates"] = len(pending)      # why it is unattached, for the UI
+        echoes = [p for p in free if usable_needle and needle in p["args"]]
+        if len(echoes) > 1:
+            # siblings can share a long preamble: the child's whole prompt may still single one out
+            exact = [p for p in echoes if full and full in p["args_full"]]
+            if exact:
+                echoes = exact
+        if len(echoes) == 1:
+            chosen, signals, conf = echoes[0], ["echo", "overlap"], "high"
+        elif len(echoes) > 1:
+            # several open calls contain this prompt equally well (identical prompts): nothing
+            # separates them, so say so instead of picking one and calling it high
+            rec["overlap_candidates"] = len(echoes)
+        elif len(free) == 1:
+            # exactly one call could have spawned it. If others were open but are already claimed,
+            # that is elimination (weaker than a direct look at one call, so labelled as such).
+            chosen, conf = free[0], "medium"
+            signals = ["overlap"] if len(pending) == 1 else ["overlap", "elimination"]
+        elif len(free) > 1:
+            # with several unclaimed calls (e.g. Agent + Read in parallel) picking one is a guess
+            rec["overlap_candidates"] = len(free)
 
         if chosen is not None:
+            chosen["claimed_by"] = rec["call_id"]
             rec["parent_call_id"] = chosen["call_id"]
-            rec["subagent_edge"] = {"parent_call_id": chosen["call_id"], "confidence": conf,
-                                    "signals": signals, "score": SCORES[conf]}
+            rec["subagent_edge"] = {"parent_call_id": chosen["call_id"], "tool_call_id": chosen["tool_call_id"],
+                                    "confidence": conf, "signals": signals, "score": SCORES[conf]}
             self.attached += 1
             return
 

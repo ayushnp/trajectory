@@ -119,13 +119,15 @@ and (if enabled) stored content, so treat it as sensitive.
 
 ## Subagents
 
-A child chain is attached to the parent tool call that spawned it using two signals:
+A child chain is attached to the parent tool call that spawned it using these signals:
 
 | Evidence | Confidence | Attached? |
 | --- | --- | --- |
-| prompt echo **and** overlap | high | yes |
-| overlap only, with exactly **one** call pending | medium | yes |
-| overlap only, with several calls pending | none | no, goes to `unattached` |
+| prompt echo **and** overlap, one call matches | high | yes |
+| overlap only, exactly **one** call open | medium | yes |
+| overlap only, other open calls already claimed by earlier children (`elimination`) | medium | yes |
+| overlap only, several unclaimed calls open | none | no, goes to `unattached` |
+| echo matches several open calls equally (identical prompts) | none | no, goes to `unattached` |
 | echo only (no overlap) | low | no, reported only |
 
 "Overlap" means the child began while the parent's tool call was open. Measured on real Claude Code:
@@ -133,6 +135,14 @@ the subagent launches **~90 ms before the parent's response finishes streaming**
 pending from the moment it first appears in the stream. The child's prompt text is used for matching
 and then discarded; only the verdict is stored. `unattached_rate` on `/stats` is the best single
 indicator that chaining is broken.
+
+**Parallel subagents.** A tool call is claimed by at most one child, and the edge records which one
+(`tool_call_id`). Siblings whose prompts share a long opening are told apart by comparing the child's
+whole first prompt, not just its first 200 characters. A batch resolves as its members arrive: once
+some calls are claimed, the last child can attach by elimination (medium, never high).
+
+**Nested subagents.** A subagent's own tool calls are ordinary open calls of its session, so a
+grandchild attaches to the subagent's call, not to the outer call still open above it.
 
 ## Green metrics
 
@@ -238,9 +248,11 @@ directory-junction version of the same safety test does run).
 ## Known gaps and uncertainties
 
 * **opencode** was not run end to end. Its two wire formats are tested on real Tux streams.
-* **Subagent attachment** is validated on one real pattern (a single subagent from Claude Code).
-  Several parallel subagents, nested ones, and other agent harnesses are untested on real traffic;
-  parallel subagents are the likely weak spot. The unattached bucket was exercised on a synthetic case.
+* **Subagent attachment** is validated on real traffic for a single subagent from Claude Code only.
+  Parallel and nested subagents are covered by synthetic tests, not real traffic. One thing is
+  assumed, not measured: that every sibling's request arrives while all of the batch's calls are
+  still open. A child that starts after its sibling's result was delivered would lose that call
+  from the candidates. Other agent harnesses are untested.
 * **A model switch mid-conversation starts a new session**, because chains are scoped to client, wire
   format and model. This avoids merging identical prompts sent to different models.
 * **Redaction is pattern-based.** A secret with no matching pattern is stored. `store_content` is on

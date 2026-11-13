@@ -36,7 +36,7 @@ def test_echo_and_overlap_attach_at_high_confidence():
     feed(a, parent())
     c = feed(a, child(), first_text=PROMPT)
     assert c["parent_call_id"] == "p1"
-    assert c["subagent_edge"] == {"parent_call_id": "p1", "confidence": "high",
+    assert c["subagent_edge"] == {"parent_call_id": "p1", "tool_call_id": "toolu_agent", "confidence": "high",
                                   "signals": ["echo", "overlap"], "score": 0.85}
     assert "unattached" not in c or c["unattached"] is False
 
@@ -284,3 +284,94 @@ def test_child_before_the_call_even_appeared_does_not_attach():
     feed(a, parent(t_end=6, tools=tools))
     c = feed(a, child(t_received=3), first_text=PROMPT)
     assert c.get("parent_call_id") is None
+
+
+# ---------------------------------------------------------------- parallel and nested subagents
+SHARED = "You are a code reviewer for the payments service. Follow the checklist in docs/review.md carefully. "
+
+
+def agent(tid, prompt):
+    return {"id": tid, "name": "Agent", "args": json.dumps({"prompt": prompt})}
+
+
+def test_parallel_children_with_distinct_prompts_each_get_their_own_parent():
+    a = SubagentAttacher()
+    feed(a, parent(tools=[agent("t1", "Summarise the billing module in detail please"),
+                          agent("t2", "List every TODO in the refunds module please")]))
+    c1 = feed(a, child("c1", "s1", t_received=3), first_text="Summarise the billing module in detail please")
+    c2 = feed(a, child("c2", "s2", t_received=3), first_text="List every TODO in the refunds module please")
+    assert c1["subagent_edge"]["confidence"] == c2["subagent_edge"]["confidence"] == "high"
+    assert a.attached == 2 and a.unattached == 0
+
+
+def test_parallel_children_sharing_a_200_char_prefix_are_told_apart_by_the_rest_of_the_prompt():
+    p1, p2 = SHARED * 3 + "Review file alpha.py.", SHARED * 3 + "Review file beta.py."
+    assert normalize(p1) == normalize(p2)                      # the 200-char needle cannot separate them
+    a = SubagentAttacher()
+    feed(a, parent(tools=[agent("t1", p1), agent("t2", p2)]))
+    c1 = feed(a, child("c1", "s1", t_received=3), first_text=p1)
+    c2 = feed(a, child("c2", "s2", t_received=3), first_text=p2)
+    assert c1["subagent_edge"]["parent_call_id"] == "p1" and c1["subagent_edge"]["confidence"] == "high"
+    assert c2["subagent_edge"]["parent_call_id"] == "p1" and c2["subagent_edge"]["confidence"] == "high"
+    # and they pair with different tool calls, not the same one
+    assert c1["subagent_edge"]["tool_call_id"] == "t1" and c2["subagent_edge"]["tool_call_id"] == "t2"
+
+
+def test_identical_prompts_cannot_be_told_apart_and_are_not_guessed():
+    a = SubagentAttacher()
+    feed(a, parent(tools=[agent("t1", SHARED * 3), agent("t2", SHARED * 3)]))
+    c = feed(a, child("c1", "s1", t_received=3), first_text=SHARED * 3)
+    assert c.get("parent_call_id") is None and c["unattached"] is True and c["overlap_candidates"] == 2
+
+
+def test_a_call_already_claimed_at_high_confidence_is_eliminated_for_the_next_child():
+    a = SubagentAttacher()
+    feed(a, parent(tools=[agent("t1", "Summarise the billing module in detail please"),
+                          {"id": "t2", "name": "Agent", "args": "{}"}]))        # prompt not recoverable
+    c1 = feed(a, child("c1", "s1", t_received=3), first_text="Summarise the billing module in detail please")
+    c2 = feed(a, child("c2", "s2", t_received=3), first_text="a prompt that is nowhere in the arguments")
+    assert c1["subagent_edge"]["confidence"] == "high"
+    assert c2["parent_call_id"] == "p1" and c2["subagent_edge"]["confidence"] == "medium"
+    assert c2["subagent_edge"]["signals"] == ["overlap", "elimination"]
+    assert c2["subagent_edge"]["tool_call_id"] == "t2"
+
+
+def test_a_lone_pending_call_that_another_child_already_claimed_is_not_given_a_second_child():
+    a = SubagentAttacher()
+    feed(a, parent())
+    c1 = feed(a, child("c1", "s1", t_received=3), first_text=PROMPT)
+    c2 = feed(a, child("c2", "s2", t_received=3), first_text="something unrelated to the arguments here")
+    assert c1["subagent_edge"]["confidence"] == "high"
+    assert c2.get("parent_call_id") is None and c2["unattached"] is True
+
+
+def test_nested_subagent_attaches_to_the_subagents_call_not_the_outer_one():
+    """S1 calls Agent (t1). Its child S2 calls Agent (t2) to spawn S3. While S3 starts, t1 and t2 are both open."""
+    a = SubagentAttacher()
+    feed(a, parent("p1", "S1", t_end=2, tools=[agent("t1", "Audit the whole repository for dead code")]))
+    feed(a, child("c2", "S2", t_received=3), first_text="Audit the whole repository for dead code")
+    s2_call = parent("c2b", "S2", t_received=4, t_end=5, tools=[agent("t2", "Check module utils.py for unused functions")])
+    s2_call["step_index"] = 1
+    feed(a, s2_call)
+    c3 = feed(a, child("c3", "S3", t_received=6), first_text="Check module utils.py for unused functions")
+    assert c3["subagent_edge"]["parent_call_id"] == "c2b" and c3["subagent_edge"]["confidence"] == "high"
+
+
+def test_nested_without_echo_uses_elimination_and_says_so():
+    a = SubagentAttacher()
+    feed(a, parent("p1", "S1", t_end=2, tools=[agent("t1", "Audit the whole repository for dead code")]))
+    feed(a, child("c2", "S2", t_received=3), first_text="Audit the whole repository for dead code")
+    s2_call = parent("c2b", "S2", t_received=4, t_end=5, tools=[{"id": "t2", "name": "Agent", "args": "{}"}])
+    s2_call["step_index"] = 1
+    feed(a, s2_call)
+    c3 = feed(a, child("c3", "S3", t_received=6), first_text="prompt that the arguments do not contain")
+    assert c3["subagent_edge"]["parent_call_id"] == "c2b"
+    assert c3["subagent_edge"]["confidence"] == "medium" and "elimination" in c3["subagent_edge"]["signals"]
+
+
+def test_elimination_never_applies_across_clients():
+    a = SubagentAttacher()
+    feed(a, parent("p1", key="alice", tools=[agent("t1", "Summarise the billing module in detail please")]))
+    feed(a, child("c1", "s1", key="alice", t_received=3), first_text="Summarise the billing module in detail please")
+    c = feed(a, child("c2", "s2", key="bob", t_received=3), first_text="unrelated work by another user entirely")
+    assert c.get("parent_call_id") is None and not c.get("unattached")
