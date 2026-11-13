@@ -5,58 +5,136 @@
   <title>tux-trace</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="stylesheet" href="/_trace/static/style.css">
+  <script>
+    /* set the theme before first paint so there is no flash */
+    (function () { try { var t = localStorage.getItem("tt-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {} })();
+  </script>
 </head>
 <body>
-  <header>
-    <h1>tux-trace</h1>
-    <nav>
-      <button class="tab on" data-view="sessions">Sessions</button>
-      <button class="tab" data-view="calls">All calls</button>
+  <header class="top">
+    <div class="brand"><span class="logo" aria-hidden="true">&#9680;</span><h1>tux-trace</h1></div>
+
+    <nav class="modes" role="tablist" aria-label="Dashboard view">
+      <button class="mode on" role="tab" data-mode="trajectory" aria-selected="true">
+        <span class="mi" aria-hidden="true">&#8644;</span>
+        <span><b>Trajectory</b><small>tracing &amp; observation</small></span>
+      </button>
+      <button class="mode" role="tab" data-mode="green" aria-selected="false">
+        <span class="mi" aria-hidden="true">&#10048;</span>
+        <span><b>Green metrics</b><small>energy &amp; emissions</small></span>
+      </button>
     </nav>
-    <div id="stats" class="stats"></div>
-    <span id="live" class="live" title="polls every 3 s">&#9679; live</span>
+
+    <div class="right">
+      <span id="live" class="live" title="polls every 3 s">&#9679; live</span>
+      <button id="theme" class="icon" title="Switch light / dark" aria-label="Switch light or dark theme">&#9681;</button>
+      <button id="help" class="icon" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
+    </div>
   </header>
 
-  <main id="view-sessions" class="three">
-    <section class="pane" id="sessions-pane">
-      <h2>Sessions <span id="scount" class="muted"></span></h2>
-      <div class="scroll"><div id="sessions"></div>
-        <p id="sempty" class="muted" hidden>No sessions yet. Point an agent at this proxy and send something.</p>
+  <!-- ============================================================ TRAJECTORY -->
+  <div id="mode-trajectory">
+    <div class="subbar">
+      <div class="seg" role="tablist" aria-label="Trajectory view">
+        <button class="tab on" data-view="sessions" role="tab">Sessions</button>
+        <button class="tab" data-view="calls" role="tab">All calls</button>
       </div>
-    </section>
+      <details class="health" id="health">
+        <summary><span class="hdot" id="hdot"></span><span id="hsum">Proxy health</span></summary>
+        <div id="stats" class="stats"></div>
+      </details>
+    </div>
 
-    <section class="pane" id="traj-pane">
-      <h2 id="traj-title">Trajectory</h2>
-      <div class="scroll" id="traj"><p class="muted">Select a session.</p></div>
-    </section>
+    <main id="view-sessions" class="three">
+      <section class="pane" id="sessions-pane">
+        <header class="panehead">
+          <h2>Sessions <span id="scount" class="muted"></span></h2>
+          <div class="tools-row">
+            <input id="sfilter" type="search" placeholder="Filter sessions" aria-label="Filter sessions">
+            <button class="chev" data-collapse="sessions-pane" title="Collapse this pane" aria-label="Collapse sessions">&#8249;</button>
+          </div>
+        </header>
+        <div class="scroll"><div id="sessions"></div>
+          <p id="sempty" class="muted" hidden>No sessions yet. Point an agent at this proxy and send something.</p>
+        </div>
+      </section>
 
-    <section class="pane" id="detail-pane">
-      <h2>Detail</h2>
-      <div class="scroll" id="detail"><p class="muted">Select a step.</p></div>
-    </section>
-  </main>
+      <section class="pane" id="traj-pane">
+        <header class="panehead">
+          <h2 id="traj-title">Trajectory</h2>
+          <div class="tools-row" id="traj-tools" hidden>
+            <button class="ghost" id="expand-all">Expand all</button>
+            <button class="ghost" id="collapse-all">Collapse all</button>
+          </div>
+        </header>
+        <div class="scroll" id="traj"><p class="muted">Select a session.</p></div>
+      </section>
 
-  <main id="view-calls" hidden>
-    <section class="pane">
-      <h2>All calls <span id="count" class="muted"></span>
-        <label class="muted" style="float:right"><input type="checkbox" id="show-unknown"> include non-model requests (health probes etc.)</label></h2>
-      <div class="scroll">
-        <table id="calls">
-          <thead><tr>
-            <th>Time</th><th>Format</th><th>Model</th><th>Status</th>
-            <th class="num">TTFT</th><th class="num">TTFT&nbsp;text</th><th class="num">Total</th>
-            <th class="num">In</th><th class="num">Out</th><th class="num">Cache&nbsp;read</th><th class="num">Cache&nbsp;write</th>
-            <th class="num">Energy&nbsp;est.</th><th>Stop</th><th>Tools</th><th></th>
-          </tr></thead>
-          <tbody></tbody>
-        </table>
-        <p id="empty" class="muted" hidden>No calls recorded yet.</p>
+      <section class="pane" id="detail-pane">
+        <header class="panehead">
+          <h2>Detail</h2>
+          <div class="tools-row">
+            <button class="ghost" id="prev-step" title="Previous step (k)" aria-label="Previous step">&#8593;</button>
+            <button class="ghost" id="next-step" title="Next step (j)" aria-label="Next step">&#8595;</button>
+            <button class="chev" data-collapse="detail-pane" title="Collapse this pane" aria-label="Collapse detail">&#8250;</button>
+          </div>
+        </header>
+        <div class="scroll" id="detail"><p class="muted">Select a step.</p></div>
+      </section>
+    </main>
+
+    <main id="view-calls" hidden>
+      <section class="pane">
+        <header class="panehead">
+          <h2>All calls <span id="count" class="muted"></span></h2>
+          <label class="muted check"><input type="checkbox" id="show-unknown"> include non-model requests</label>
+        </header>
+        <div class="scroll">
+          <table id="calls">
+            <thead><tr>
+              <th>Time</th><th>Format</th><th>Model</th><th>Status</th>
+              <th class="num">TTFT</th><th class="num">TTFT&nbsp;text</th><th class="num">Total</th>
+              <th class="num">In</th><th class="num">Out</th><th class="num">Cache&nbsp;read</th><th class="num">Cache&nbsp;write</th>
+              <th class="num">Energy&nbsp;est.</th><th>Stop</th><th>Tools</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+          <p id="empty" class="muted" hidden>No calls recorded yet.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ============================================================ GREEN -->
+  <div id="mode-green" hidden>
+    <div class="subbar">
+      <div class="seg" role="group" aria-label="Time window" id="window">
+        <button data-hours="1">1 h</button>
+        <button data-hours="24">24 h</button>
+        <button data-hours="168">7 d</button>
+        <button data-hours="all" class="on">All</button>
       </div>
-    </section>
-  </main>
+      <span class="muted" id="green-window"></span>
+    </div>
+    <main id="green" class="greenwrap"><p class="muted">Loading&hellip;</p></main>
+  </div>
+
+  <div id="helpbox" class="modal" hidden role="dialog" aria-label="Keyboard shortcuts">
+    <div class="modalcard">
+      <h2>Keyboard shortcuts</h2>
+      <dl class="keys">
+        <dt><kbd>g</kbd> <kbd>t</kbd></dt><dd>Trajectory view</dd>
+        <dt><kbd>g</kbd> <kbd>e</kbd></dt><dd>Green metrics view</dd>
+        <dt><kbd>j</kbd> / <kbd>k</kbd></dt><dd>Next / previous step</dd>
+        <dt><kbd>/</kbd></dt><dd>Filter sessions</dd>
+        <dt><kbd>Esc</kbd></dt><dd>Close this box</dd>
+      </dl>
+      <button class="ghost" id="help-close">Close</button>
+    </div>
+  </div>
 
   <footer class="muted">
-    &mdash; means <em>not reported</em> by the provider; it is never shown as 0. Energy and emissions are
+    &mdash; means <em>not reported</em> by the provider; it is never shown as 0. Energy, emissions and water are
     <strong>estimates, not measurements</strong>, always shown as a range. <em>gap</em> is an upper bound on
     tool time (tool + agent + network + any human wait).
   </footer>

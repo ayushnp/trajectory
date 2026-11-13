@@ -171,6 +171,25 @@ class SqliteIndex:
         rows = self._docs("SELECT doc FROM calls WHERE call_id=?", (call_id,))
         return rows[0] if rows else None
 
+    def green_rows(self, since_iso: str | None) -> list[dict]:
+        """Slim rows for every MODEL call since `since_iso` (all time if None). Only the fields the
+        green view needs are pulled out of the stored JSON, so a large index is not parsed whole."""
+        where = "format IN ('anthropic','openai_chat','openai_responses')"
+        params: tuple = ()
+        if since_iso:
+            where += " AND received_at >= ?"
+            params = (since_iso,)
+        sql = ("SELECT received_at, session_id, COALESCE(model_served, model_requested, '?'), harness,"
+               " json_extract(doc, '$.green') FROM calls WHERE " + where + " ORDER BY received_at")
+        out = []
+        for at, sid, model, harness, green in self.query(sql, params):
+            try:
+                g = json.loads(green) if green else None
+            except ValueError:
+                g = None
+            out.append({"received_at": at, "session_id": sid, "model": model, "harness": harness, "green": g})
+        return out
+
     def get_joined(self, call_id: str) -> dict | None:
         """One call with its tool calls' results folded in (answers live on later requests)."""
         rec = self.get_doc(call_id)

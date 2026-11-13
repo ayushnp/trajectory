@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from starlette.requests import Request
@@ -14,6 +15,7 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from . import green_view
 from . import sessions as sess
 from .tools import join_results
 
@@ -162,6 +164,26 @@ async def session_trajectory(request: Request) -> JSONResponse:
     return JSONResponse(t) if t else JSONResponse({"error": "not found"}, 404)
 
 
+async def green(request: Request) -> JSONResponse:
+    """Energy / emissions / water for every model call in a window. Estimates, as ranges."""
+    raw = request.query_params.get("hours", "")
+    try:
+        hours = float(raw) if raw not in ("", "all") else None
+        if hours is not None and not 0 < hours <= 24 * 3650:
+            raise ValueError
+    except ValueError:
+        return JSONResponse({"error": "hours must be a positive number, or 'all'"}, 400)
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat() if hours else None
+    sq = request.app.state.sqlite
+    if sq is not None:
+        rows = sq.green_rows(since)
+    else:
+        rows = [green_view.slim(r) for r in request.app.state.index.all()
+                if (r.get("request") or {}).get("format") in ("anthropic", "openai_chat", "openai_responses")
+                and (since is None or (r.get("timing") or {}).get("received_at", "") >= since)]
+    return JSONResponse(green_view.aggregate(rows, hours))
+
+
 async def call_conversation(request: Request) -> JSONResponse:
     """Readable prompt/response for one call (new messages only, streamed text joined)."""
     resp = await call_content(request)
@@ -205,6 +227,7 @@ def routes() -> list:
         Route("/_trace/api/calls/{call_id}", call_detail, methods=["GET"]),
         Route("/_trace/api/calls/{call_id}/content", call_content, methods=["GET"]),
         Route("/_trace/api/calls/{call_id}/conversation", call_conversation, methods=["GET"]),
+        Route("/_trace/api/green", green, methods=["GET"]),
         Route("/_trace/api/sessions", sessions_list, methods=["GET"]),
         Route("/_trace/api/sessions/{session_id}/trajectory", session_trajectory, methods=["GET"]),
         Mount("/_trace/static", StaticFiles(directory=STATIC), name="static"),

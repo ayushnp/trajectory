@@ -105,14 +105,30 @@ upper bound and is labelled "gap" everywhere. A tool call with no result in any 
 
 ## Dashboard
 
-`/_trace` has three panes: **Sessions** (one card per session), **Trajectory** (one row per step with
-tool calls nested; subagents under "attachment is inferred"; orphans under "could not be attached")
-and **Detail** (the full record for a step). **All calls** is a flat table; health probes and other
-non-model requests are hidden unless you tick the box. `#session=<id>` deep-links to a session.
+`/_trace` has two views, chosen with the buttons at the top (or `g t` / `g e`):
 
-Rules the UI follows: `—` means not reported (never `0`); energy is always a range, always marked an
-estimate; a non-exact estimate basis is flagged; session token totals sum only the calls that
-reported the metric and say how many did not.
+**Trajectory** (tracing and observation) has three panes: **Sessions** (one card per session, with a
+filter box), **Trajectory** (steps grouped into collapsible **turns**; tool calls nested; subagents under
+"attachment is inferred"; orphans under "could not be attached") and **Detail** (the prompt and reply
+for a step, then collapsible timing, energy, tool calls and the full record). The sessions and detail
+panes can be collapsed. **All calls** is a flat table; health probes and other non-model requests are
+hidden unless you tick the box. `j` / `k` step through a session.
+
+**Green metrics** shows energy, emissions and water for every model call in a window (1 h, 24 h, 7 d,
+all): headline tiles with their range, coverage (how many calls have an estimate and why the rest do
+not), energy by model, energy over time (with a table view), the biggest sessions, what drives the
+estimate, and a collapsible "how these numbers are made" with the method, region and library warnings.
+The data comes from `GET /_trace/api/green?hours=<n|all>`.
+
+Open or closed state of every collapsible, the chosen view, window and theme are remembered in the
+browser, and survive the 3-second refresh. Light and dark themes follow the OS until you use the toggle.
+`#session=<id>`, `#session=<id>&step=<call id>`, `#mode=green` and `#theme=light` are deep links.
+
+Rules the UI follows: `—` means not reported (never `0`); energy, emissions and water are always a
+range, always marked an estimate, shown in a readable unit (Wh, g, mL) with the exact figures in the
+tooltip; a non-exact estimate basis is flagged; a call with no estimate is counted and its reason
+shown, never treated as zero; session token totals sum only the calls that reported the metric and
+say how many did not.
 
 The dashboard has **no authentication** and is bound to loopback only. It shows tool-call arguments
 and (if enabled) stored content, so treat it as sensitive.
@@ -274,7 +290,8 @@ directory-junction version of the same safety test does run).
   is dropped and refilled from it at startup, and `tux-trace reindex` rebuilds it on demand. With
   `sqlite_index: false` the dashboard falls back to reading the JSONL into memory (capped at 20,000
   records). It polls every 3 s; untested at tens of thousands of sessions.
-* **Light theme** colours are defined but were never looked at.
+* **Dashboard layout** was checked in headless Edge at 1400-1600 px wide, in both themes. Narrow
+  screens (under 1100 px stack the panes) and other browsers were not looked at.
 * **Retention** is covered by unit tests and a CLI run on back-dated files, not by a multi-day soak.
 * **EcoLogits is called through `ecologits.tracers.utils.llm_impacts`**, which is not its headline API.
   The version is recorded on every call, but a library upgrade could break it (tests would catch it).
