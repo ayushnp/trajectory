@@ -5,7 +5,8 @@ JSONL is authoritative. This database is a derived, rebuildable view for queryin
 mode lets readers (the API, a human with sqlite3) query concurrently.
 
 Tables
-  calls     one row per model call, with the fields worth filtering and sorting on
+  calls     one row per call, with the fields worth filtering and sorting on, plus `doc`: the full
+            record as JSON (a copy of the JSONL line, which stays authoritative)
   sessions  one row per session, kept current as calls arrive
   greens    one row per estimate: ranges, basis, method version
   links     relationships between calls and sessions: subagent edges (with confidence), tool-result
@@ -19,7 +20,9 @@ import sqlite3
 import threading
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+from .tools import join_results
+
+SCHEMA_VERSION = 2   # v2: calls.doc (the full record) + calls.parent_call_id, so readers need no JSONL scan
 DDL = """
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS calls (
@@ -29,7 +32,8 @@ CREATE TABLE IF NOT EXISTS calls (
   ttft_any_ms REAL, ttft_visible_ms REAL, total_ms REAL, duration_ms REAL,
   input_total INTEGER, output INTEGER, cache_read INTEGER, cache_write INTEGER,
   tool_call_count INTEGER, incomplete INTEGER, error_type TEXT, harness TEXT, client_hash TEXT,
-  compaction_suspected INTEGER, unattached INTEGER);
+  compaction_suspected INTEGER, unattached INTEGER, parent_call_id TEXT, doc TEXT);
+CREATE INDEX IF NOT EXISTS calls_parent ON calls(parent_call_id);
 CREATE INDEX IF NOT EXISTS calls_session ON calls(session_id, step_index);
 CREATE INDEX IF NOT EXISTS calls_time ON calls(received_at);
 CREATE INDEX IF NOT EXISTS calls_day ON calls(day);
@@ -60,8 +64,21 @@ class SqliteIndex:
         self._db = sqlite3.connect(self.path, check_same_thread=False, isolation_level=None)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.execute("PRAGMA synchronous=NORMAL")
+        self.needs_backfill = self._migrate()
         self._db.executescript(DDL)
         self._db.execute("INSERT OR REPLACE INTO meta VALUES ('schema_version', ?)", (str(SCHEMA_VERSION),))
+
+    def _migrate(self) -> bool:
+        """An index from an older schema is dropped (it is derived data) and must be refilled from JSONL."""
+        has = self._db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='meta'").fetchone()
+        if not has:
+            return False
+        row = self._db.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
+        if row and row[0] == str(SCHEMA_VERSION):
+            return False
+        for t in ("calls", "sessions", "greens", "links", "meta"):
+            self._db.execute(f"DROP TABLE IF EXISTS {t}")
+        return True
 
     def close(self) -> None:
         with self._lock:
@@ -84,7 +101,7 @@ class SqliteIndex:
         day = (t.get("received_at") or "")[:10]
         err = (o.get("error") or {}).get("type")
         self._db.execute(
-            "INSERT OR REPLACE INTO calls VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR REPLACE INTO calls VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (r["call_id"], r.get("session_id"), r.get("step_index"), r.get("turn_index"),
              t.get("received_at"), day, req.get("format"), req.get("path"),
              req.get("model_requested"), res.get("model_served"), res.get("status"), res.get("stop_reason"),
@@ -92,7 +109,8 @@ class SqliteIndex:
              _m(r, "input_total"), _m(r, "output"), _m(r, "cache_read"), _m(r, "cache_write"),
              len(res.get("tool_calls") or []), int(bool(o.get("incomplete"))), err,
              (r.get("client") or {}).get("harness_hint"), (r.get("client") or {}).get("key_hash"),
-             int(bool(r.get("compaction_suspected"))), int(bool(r.get("unattached")))))
+             int(bool(r.get("compaction_suspected"))), int(bool(r.get("unattached"))),
+             r.get("parent_call_id"), json.dumps(r, separators=(",", ":"), ensure_ascii=False)))
         sid = r.get("session_id")
         if sid:
             self._db.execute(
@@ -141,14 +159,87 @@ class SqliteIndex:
         with self._lock:
             return self._db.execute(sql, params).fetchall()
 
+    # -- reading (used by the dashboard API) ------------------------------------------------
+    def _docs(self, sql: str, params: tuple = ()) -> list[dict]:
+        return [json.loads(d) for (d,) in self.query(sql, params)]
+
+    @staticmethod
+    def _qs(n: int) -> str:
+        return ",".join("?" * n)
+
+    def get_doc(self, call_id: str) -> dict | None:
+        rows = self._docs("SELECT doc FROM calls WHERE call_id=?", (call_id,))
+        return rows[0] if rows else None
+
+    def get_joined(self, call_id: str) -> dict | None:
+        """One call with its tool calls' results folded in (answers live on later requests)."""
+        rec = self.get_doc(call_id)
+        if rec is None:
+            return None
+        ids = [r[0] for r in self.query("SELECT from_id FROM links WHERE kind='tool_result' AND to_id=?", (call_id,))]
+        answers = self._docs(f"SELECT doc FROM calls WHERE call_id IN ({self._qs(len(ids))})", tuple(ids)) if ids else []
+        join_results([rec, *answers])
+        return rec
+
+    def recent_docs(self, limit: int, offset: int) -> tuple[list[dict], int]:
+        total = self.query("SELECT COUNT(*) FROM calls")[0][0]
+        return self._docs("SELECT doc FROM calls ORDER BY received_at DESC LIMIT ? OFFSET ?", (limit, offset)), total
+
+    def session_page(self, limit: int, offset: int) -> tuple[list[str], int]:
+        total = self.query("SELECT COUNT(*) FROM sessions")[0][0]
+        ids = [r[0] for r in self.query("SELECT session_id FROM sessions ORDER BY last_seen DESC LIMIT ? OFFSET ?",
+                                        (limit, offset))]
+        return ids, total
+
+    def records_for_sessions(self, session_ids: list[str]) -> list[dict]:
+        """Everything needed to summarise these sessions: their calls, the calls that answer their
+        tool calls (answers live on a LATER request), and the calls their roots hang off."""
+        if not session_ids:
+            return []
+        q = self._qs(len(session_ids))
+        recs = {d["call_id"]: d for d in self._docs(f"SELECT doc FROM calls WHERE session_id IN ({q})", tuple(session_ids))}
+        ids = list(recs)
+        extra: set[str] = set()
+        for i in range(0, len(ids), 500):                      # stay under SQLite's variable limit
+            chunk = ids[i:i + 500]
+            qq = self._qs(len(chunk))
+            extra.update(r[0] for r in self.query(
+                f"SELECT from_id FROM links WHERE kind='tool_result' AND to_id IN ({qq})", tuple(chunk)))
+        roots = {d.get("parent_call_id") for d in recs.values() if d.get("parent_call_id")}
+        extra |= roots
+        extra -= set(recs)
+        for i in range(0, len(extra), 500):
+            chunk = list(extra)[i:i + 500]
+            for d in self._docs(f"SELECT doc FROM calls WHERE call_id IN ({self._qs(len(chunk))})", tuple(chunk)):
+                recs[d["call_id"]] = d
+        return list(recs.values())
+
+    def trajectory_records(self, session_id: str) -> list[dict]:
+        """The session's calls plus its subagent children and overlapping unattached sessions."""
+        own = self.records_for_sessions([session_id])
+        mine = [r for r in own if r.get("session_id") == session_id]
+        if not mine:
+            return []
+        ids = [r["call_id"] for r in mine]
+        related: set[str] = set()
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            related.update(r[0] for r in self.query(
+                f"SELECT DISTINCT session_id FROM calls WHERE parent_call_id IN ({self._qs(len(chunk))})"
+                " AND session_id IS NOT NULL", tuple(chunk)))
+        # unattached sessions that overlapped this one name it in `overlapped_sessions` (JSON in doc)
+        for (sid,) in self.query("SELECT DISTINCT session_id FROM calls WHERE unattached=1 AND session_id IS NOT NULL"
+                                 " AND doc LIKE ?", (f"%{session_id}%",)):
+            related.add(sid)
+        related.discard(session_id)
+        out = {r["call_id"]: r for r in own}
+        for r in self.records_for_sessions(sorted(related)):
+            out.setdefault(r["call_id"], r)
+        return list(out.values())
+
     # -- rebuilding -------------------------------------------------------------------------
-    @classmethod
-    def rebuild(cls, data_dir: str | Path, db_path: str | Path | None = None) -> tuple["SqliteIndex", int]:
-        """Drop and recreate the index from data/calls/*.jsonl. Returns (index, records_indexed)."""
-        db_path = Path(db_path or Path(data_dir) / "index.db")
-        for suffix in ("", "-wal", "-shm"):
-            Path(str(db_path) + suffix).unlink(missing_ok=True)
-        idx = cls(db_path)
+    def backfill(self, data_dir: str | Path) -> int:
+        """Load every JSONL record into this index (idempotent: upserts replace). Returns records read."""
         n, batch = 0, []
         for f in sorted((Path(data_dir) / "calls").glob("*.jsonl")):
             with open(f, encoding="utf-8") as fh:
@@ -161,7 +252,17 @@ class SqliteIndex:
                     except ValueError:
                         continue                    # a torn final line is skipped, not fatal
                     if len(batch) >= 500:
-                        idx.upsert(batch); n += len(batch); batch = []
+                        self.upsert(batch); n += len(batch); batch = []
         if batch:
-            idx.upsert(batch); n += len(batch)
-        return idx, n
+            self.upsert(batch); n += len(batch)
+        self.needs_backfill = False
+        return n
+
+    @classmethod
+    def rebuild(cls, data_dir: str | Path, db_path: str | Path | None = None) -> tuple["SqliteIndex", int]:
+        """Drop and recreate the index from data/calls/*.jsonl. Returns (index, records_indexed)."""
+        db_path = Path(db_path or Path(data_dir) / "index.db")
+        for suffix in ("", "-wal", "-shm"):
+            Path(str(db_path) + suffix).unlink(missing_ok=True)
+        idx = cls(db_path)
+        return idx, idx.backfill(data_dir)

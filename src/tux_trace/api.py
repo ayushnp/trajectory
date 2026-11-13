@@ -111,12 +111,18 @@ async def calls(request: Request) -> JSONResponse:
         offset = max(0, int(request.query_params.get("offset", 0)))
     except ValueError:
         return JSONResponse({"error": "limit/offset must be integers"}, 400)
-    rows, total = request.app.state.index.recent(limit, offset)
+    sq = request.app.state.sqlite
+    rows, total = sq.recent_docs(limit, offset) if sq else request.app.state.index.recent(limit, offset)
     return JSONResponse({"total": total, "calls": [_row(r) for r in rows]})
 
 
+def _get_call(request: Request, call_id: str) -> dict | None:
+    sq = request.app.state.sqlite
+    return sq.get_joined(call_id) if sq else request.app.state.index.get(call_id)
+
+
 async def call_detail(request: Request) -> JSONResponse:
-    rec = request.app.state.index.get(request.path_params["call_id"])
+    rec = _get_call(request, request.path_params["call_id"])
     return JSONResponse(rec) if rec else JSONResponse({"error": "not found"}, 404)
 
 
@@ -131,12 +137,28 @@ async def sessions_list(request: Request) -> JSONResponse:
         limit, offset = _paging(request)
     except ValueError:
         return JSONResponse({"error": "limit/offset must be integers"}, 400)
-    items, total = sess.list_sessions(request.app.state.index.all(), limit, offset)
-    return JSONResponse({"total": total, "sessions": items})
+    sq = request.app.state.sqlite
+    if sq is None:
+        items, total = sess.list_sessions(request.app.state.index.all(), limit, offset)
+        return JSONResponse({"total": total, "sessions": items})
+    ids, total = sq.session_page(limit, offset)
+    records = sq.records_for_sessions(ids)
+    join_results(records)
+    by_id = {r["call_id"]: r for r in records}
+    groups = sess.group_sessions(records)
+    return JSONResponse({"total": total, "sessions": [sess.session_summary(sid, groups[sid], by_id)
+                                                      for sid in ids if sid in groups]})
 
 
 async def session_trajectory(request: Request) -> JSONResponse:
-    t = sess.trajectory(request.path_params["session_id"], request.app.state.index.all())
+    sid = request.path_params["session_id"]
+    sq = request.app.state.sqlite
+    if sq is None:
+        records = request.app.state.index.all()
+    else:
+        records = sq.trajectory_records(sid)
+        join_results(records)
+    t = sess.trajectory(sid, records)
     return JSONResponse(t) if t else JSONResponse({"error": "not found"}, 404)
 
 
@@ -151,7 +173,7 @@ async def call_conversation(request: Request) -> JSONResponse:
 
 async def call_content(request: Request) -> JSONResponse:
     """Stored (redacted) prompt/response text for one call, when store_content was on."""
-    rec = request.app.state.index.get(request.path_params["call_id"])
+    rec = _get_call(request, request.path_params["call_id"])
     if rec is None:
         return JSONResponse({"error": "not found"}, 404)
     c = rec.get("content") or {}

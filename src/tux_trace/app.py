@@ -1,6 +1,8 @@
 """Ingress. Own endpoints live under /healthz and /stats; everything else is relayed."""
 from __future__ import annotations
 
+import asyncio
+import logging
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -77,6 +79,10 @@ def create_app(cfg: Config) -> Starlette:
         app.state.client = make_client(
             cfg.upstream.base_url, cfg.upstream.connect_timeout_s, cfg.upstream.read_timeout_s
         )
+        sq = app.state.sqlite
+        if sq is not None and sq.needs_backfill:         # first run on a new schema: refill from JSONL
+            n = await asyncio.to_thread(sq.backfill, cfg.data_dir)
+            logging.getLogger("tux_trace").info("sqlite index refilled from JSONL: %d records", n)
         app.state.retention.start()
         yield
         app.state.retention.stop()

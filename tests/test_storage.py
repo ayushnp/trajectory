@@ -125,6 +125,12 @@ def test_content_endpoint_will_not_serve_files_outside_the_data_dir(proxy_factor
     rec = json.loads(f.read_text(encoding="utf-8").splitlines()[0])
     rec["content"] = {"stored": True, "path": "../outside_secret.json"}
     f.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+    # the API now reads the SQLite copy, so forge that one too (WAL lets a second connection write)
+    import sqlite3
+    db = sqlite3.connect(proxy_factory.data_dir / "index.db")
+    db.execute("UPDATE calls SET doc=? WHERE call_id=?", (json.dumps(rec), cid))
+    db.commit()
+    db.close()
     r = httpx.get(proxy + f"/_trace/api/calls/{cid}/content")
     assert r.status_code == 404 and "leak" not in r.text
     outside.unlink()

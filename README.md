@@ -250,9 +250,11 @@ directory-junction version of the same safety test does run).
 * **Tool results from OpenAI formats** have no error flag (`result_is_error` is `null`).
 * **Pending tool calls and chain heads live in memory** (bounded, 30-minute expiry). A proxy restart
   mid-conversation orphans in-flight pairing; those results are counted as unmatched, not invented.
-* **The dashboard reads the JSONL into memory** (capped at 20,000 records), not the SQLite index. The
-  index is correct and rebuildable but nothing queries it yet. It polls every 3 s; untested at
-  thousands of sessions.
+* **The dashboard reads the SQLite index** (schema v2 keeps a full copy of each record, so no scan of
+  the JSONL and no 20,000-record cap). JSONL is still the source of truth: an index from an older schema
+  is dropped and refilled from it at startup, and `tux-trace reindex` rebuilds it on demand. With
+  `sqlite_index: false` the dashboard falls back to reading the JSONL into memory (capped at 20,000
+  records). It polls every 3 s; untested at tens of thousands of sessions.
 * **Light theme** colours are defined but were never looked at.
 * **Retention** is covered by unit tests and a CLI run on back-dated files, not by a multi-day soak.
 * **EcoLogits is called through `ecologits.tracers.utils.llm_impacts`**, which is not its headline API.
