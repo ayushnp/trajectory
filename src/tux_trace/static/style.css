@@ -69,3 +69,7 @@ a { color: var(--accent); }
 #traj table.steps { min-width: 780px; }
 td .tag, th .tag { margin-right: 2px; }
 td:last-child { white-space: normal; min-width: 90px; }
+
+pre.msg { white-space: pre-wrap; word-break: break-word; max-height: 22em; overflow: auto; margin: 4px 0; }
+.role { font-weight: 600; margin-top: 6px; text-transform: capitalize; }
+.tc { border-left: 3px solid var(--line, #8884); padding-left: 8px; margin: 4px 0; }

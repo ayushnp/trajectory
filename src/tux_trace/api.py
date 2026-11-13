@@ -10,7 +10,7 @@ import threading
 from pathlib import Path
 
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse
+from starlette.responses import FileResponse, JSONResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -140,6 +140,15 @@ async def session_trajectory(request: Request) -> JSONResponse:
     return JSONResponse(t) if t else JSONResponse({"error": "not found"}, 404)
 
 
+async def call_conversation(request: Request) -> JSONResponse:
+    """Readable prompt/response for one call (new messages only, streamed text joined)."""
+    resp = await call_content(request)
+    if resp.status_code != 200:
+        return resp
+    from .conversation import build
+    return JSONResponse(build(json.loads(resp.body)))
+
+
 async def call_content(request: Request) -> JSONResponse:
     """Stored (redacted) prompt/response text for one call, when store_content was on."""
     rec = request.app.state.index.get(request.path_params["call_id"])
@@ -156,17 +165,24 @@ async def call_content(request: Request) -> JSONResponse:
     return JSONResponse(json.loads(path.read_text(encoding="utf-8")))
 
 
+async def favicon(request: Request) -> Response:
+    """Browsers ask for a tab icon on every page load; answer it here so it is never relayed or recorded."""
+    return Response(status_code=204, headers={"cache-control": "public, max-age=86400"})
+
+
 async def ui(request: Request) -> FileResponse:
     return FileResponse(STATIC / "index.html", headers={"cache-control": "no-store"})
 
 
 def routes() -> list:
     return [
+        Route("/favicon.ico", favicon, methods=["GET"]),
         Route("/_trace", ui, methods=["GET"]),
         Route("/_trace/", ui, methods=["GET"]),
         Route("/_trace/api/calls", calls, methods=["GET"]),
         Route("/_trace/api/calls/{call_id}", call_detail, methods=["GET"]),
         Route("/_trace/api/calls/{call_id}/content", call_content, methods=["GET"]),
+        Route("/_trace/api/calls/{call_id}/conversation", call_conversation, methods=["GET"]),
         Route("/_trace/api/sessions", sessions_list, methods=["GET"]),
         Route("/_trace/api/sessions/{session_id}/trajectory", session_trajectory, methods=["GET"]),
         Mount("/_trace/static", StaticFiles(directory=STATIC), name="static"),

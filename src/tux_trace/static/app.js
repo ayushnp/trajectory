@@ -221,8 +221,38 @@ async function showStep(cid) {
        <pre>${esc(JSON.stringify(c.response.tool_calls.map((x) => ({ id: x.id, name: x.name, args: x.args })), null, 2))}</pre>` : "";
   const delivered = (c.request.tool_results || []).length
     ? `<h3>Results delivered in this request</h3><pre>${esc(JSON.stringify(c.request.tool_results, null, 2))}</pre>` : "";
-  $("#detail").innerHTML = `<dl>${dl}</dl>${tools}${delivered}<h3>Full record</h3><pre>${esc(JSON.stringify(c, null, 2))}</pre>`;
+  $("#detail").innerHTML = `<div id="convo"></div><dl>${dl}</dl>${tools}${delivered}<h3>Full record</h3><pre>${esc(JSON.stringify(c, null, 2))}</pre>`;
+  loadConversation(cid);
   document.querySelectorAll("tr[data-cid]").forEach((tr) => tr.classList.toggle("sel", tr.dataset.cid === cid));
+}
+
+
+// ================================================================== conversation (prompt / response text)
+function blockHtml(b) {
+  const clip = b.truncated ? ` <span class="tag warn">cut at ${num(b.text.length)} of ${num(b.total_chars)} chars</span>` : "";
+  if (b.kind === "text") return `<pre class="msg">${esc(b.text)}</pre>${clip}`;
+  if (b.kind === "thinking") return `<details><summary class="muted">reasoning</summary><pre class="msg">${esc(b.text)}</pre></details>`;
+  if (b.kind === "tool_call") return `<div class="tc"><b>${esc(b.name || "?")}</b><pre class="msg">${esc(typeof b.args === "string" ? b.args : JSON.stringify(b.args, null, 2))}</pre></div>`;
+  if (b.kind === "tool_result") return `<div class="tc">${b.is_error ? '<span class="tag bad">error</span> ' : ""}<span class="muted">tool result</span><pre class="msg">${esc(b.text)}</pre>${clip}</div>`;
+  return `<pre class="msg">${esc(b.text || JSON.stringify(b))}</pre>`;
+}
+async function loadConversation(cid) {
+  const el = $("#convo");
+  try {
+    const v = await getJSON(`${API}/calls/${encodeURIComponent(cid)}/conversation`);
+    if (state.step !== cid) return;                       // user clicked another step meanwhile
+    const rq = v.request, msgs = rq.new_messages || [];
+    const asked = msgs.map((m) => `<div class="role">${esc(m.role)}</div>${m.blocks.map(blockHtml).join("")}`).join("")
+      || '<div class="muted">nothing new in this request</div>';
+    const sys = rq.system ? `<details><summary class="muted">system prompt (${num(rq.system.chars)} chars)</summary><pre class="msg">${esc(rq.system.text)}</pre></details>` : "";
+    const tl = rq.tools && rq.tools.count ? `<details><summary class="muted">${rq.tools.count} tool definitions</summary><div class="muted">${esc((rq.tools.names || []).join(", "))}</div></details>` : "";
+    el.innerHTML = `<h3>Sent (new in this request) <span class="muted">&middot; ${num(rq.earlier_messages)} earlier messages resent</span></h3>${asked}${sys}${tl}
+      <h3>Model replied</h3>${v.response.blocks.map(blockHtml).join("") || '<div class="muted">empty</div>'}
+      ${v.response.note ? `<div class="muted">${esc(v.response.note)}</div>` : ""}
+      <div class="muted">stored copy, pattern-redacted &middot; treat as sensitive</div>`;
+  } catch (e) {
+    el.innerHTML = '<div class="muted">No prompt/response text stored for this call (store_content off, expired by retention, or not a model call).</div>';
+  }
 }
 
 // ================================================================== all calls
@@ -277,6 +307,7 @@ document.addEventListener("click", (e) => {
   const row = e.target.closest("tr[data-cid]");
   if (row) showStep(row.dataset.cid);
 });
+state.showUnknown = $("#show-unknown").checked;   // browsers can restore a ticked box on refresh
 $("#show-unknown").addEventListener("change", (e) => { state.showUnknown = e.target.checked; refreshCalls(); });
 
 async function tick() {
