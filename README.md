@@ -119,15 +119,17 @@ and (if enabled) stored content, so treat it as sensitive.
 
 ## Subagents
 
-A child chain is attached to the parent tool call that spawned it using these signals:
+A child chain is attached to the **model call** that issued the tool call which started it. Every
+helper that one call starts attaches to that same call, however many it starts. The tool call inside
+it (`tool_call_id` on the edge) is recorded only when it can be known, and left blank otherwise.
 
 | Evidence | Confidence | Attached? |
 | --- | --- | --- |
-| prompt echo **and** overlap, one call matches | high | yes |
-| overlap only, exactly **one** call open | medium | yes |
-| overlap only, other open calls already claimed by earlier children (`elimination`) | medium | yes |
-| overlap only, several unclaimed calls open | none | no, goes to `unattached` |
-| echo matches several open calls equally (identical prompts) | none | no, goes to `unattached` |
+| prompt echo found in one call's tool arguments, plus overlap | high | yes |
+| overlap only, one call open | medium | yes |
+| overlap only, one call open, its other tools already claimed by siblings (`elimination`) | medium | yes, tool call narrowed |
+| overlap only, tool calls from **different** model calls open at once | none | no, goes to `unattached` |
+| echo found in several different calls | none | no, goes to `unattached` |
 | echo only (no overlap) | low | no, reported only |
 
 "Overlap" means the child began while the parent's tool call was open. Measured on real Claude Code:
@@ -136,13 +138,18 @@ pending from the moment it first appears in the stream. The child's prompt text 
 and then discarded; only the verdict is stored. `unattached_rate` on `/stats` is the best single
 indicator that chaining is broken.
 
-**Parallel subagents.** A tool call is claimed by at most one child, and the edge records which one
-(`tool_call_id`). Siblings whose prompts share a long opening are told apart by comparing the child's
-whole first prompt, not just its first 200 characters. A batch resolves as its members arrive: once
-some calls are claimed, the last child can attach by elimination (medium, never high).
+**Parallel subagents.** Each tool call is claimed by at most one child where that can be told. Siblings
+whose prompts share a long opening are told apart by comparing the child's whole first prompt, not just
+its first 200 characters. Identical prompts, or a prompt not found in any argument, still attach to the
+parent call; only the tool call stays blank. The last sibling can narrow to the one remaining tool by
+elimination (medium, never high).
 
-**Nested subagents.** A subagent's own tool calls are ordinary open calls of its session, so a
-grandchild attaches to the subagent's call, not to the outer call still open above it.
+**Nested subagents.** A subagent's own tool calls are ordinary open calls of its session. When a
+grandchild starts, the outer call is already claimed by the subagent, so the subagent's own call is
+preferred over it.
+
+**Harness boilerplate.** Claude Code puts `<system-reminder>` blocks before the real instruction in a
+helper's first message. They are identical for every helper, so they are skipped when matching.
 
 ## Green metrics
 

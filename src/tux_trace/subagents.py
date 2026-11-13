@@ -14,12 +14,14 @@ Scoring (only high and medium are attached)
   neither -> no attachment
 
 Parallel and nested subagents
-  * A tool call is claimed by at most one child. Calls already claimed are removed from the
-    candidates for later children, so a parallel batch resolves as its members arrive.
+  * The parent is the model call that issued the tool calls. Every helper that call starts attaches
+    to it, however many tool calls it holds; which tool call inside it is recorded only when known.
+  * A tool call is claimed by at most one child, which lets later siblings narrow to what is left.
   * Echo is checked on the child's WHOLE first prompt, not just its first 200 characters, so
     siblings that share a long preamble are still told apart by what follows it.
-  * If several unclaimed calls echo equally well (identical prompts) nothing separates them: the
-    child is left unattached rather than given a coin-flip labelled "high".
+  * Identical sibling prompts cannot be matched to individual tool calls, but they still belong to
+    that one call: they attach to it with the tool call left blank. Only when the evidence points at
+    several different calls does a child go unattached.
   * Elimination: when claiming has left exactly one open call, and overlap alone would have been
     ambiguous, the child attaches at medium with signals ["overlap", "elimination"].
   * Nested: a subagent's own tool calls are ordinary pending calls of its session, so a grandchild
@@ -39,6 +41,7 @@ from collections import OrderedDict
 ECHO_CHARS = 200
 MIN_ECHO_CHARS = 12          # shorter prompts ("ok", "continue") match too much to mean anything
 _WS = re.compile(r"\s+")
+_WRAPPER = re.compile(r"^<([a-z][a-z0-9_-]*)>[\s\S]*</\1>$")
 SCORES = {"high": 0.85, "medium": 0.5, "low": 0.25}
 
 
@@ -51,14 +54,24 @@ def normalize(text: str, n: int = ECHO_CHARS) -> str:
     return _WS.sub(" ", t).strip().lower()[:n]
 
 
+def _is_wrapper(text: str) -> bool:
+    """A block that is entirely a harness-injected tag such as <system-reminder>...</system-reminder>."""
+    t = text.strip()
+    return bool(_WRAPPER.match(t))
+
+
 def first_human_text(fmt: str, body: dict) -> str | None:
     """Text of the first human message in a request (transient; never stored)."""
     def text_of(content) -> str:
         if isinstance(content, str):
             return content
         if isinstance(content, list):
-            return " ".join(p.get("text", "") for p in content
-                            if isinstance(p, dict) and p.get("type") in ("text", "input_text") and p.get("text"))
+            # Harnesses prepend boilerplate blocks (<system-reminder>...) that are identical for every
+            # child and say nothing about what it was asked. Match on the blocks that remain.
+            parts = [p.get("text", "") for p in content
+                     if isinstance(p, dict) and p.get("type") in ("text", "input_text") and p.get("text")]
+            real = [t for t in parts if not _is_wrapper(t)]
+            return " ".join(real or parts)
         return ""
     if fmt in ("anthropic", "openai_chat"):
         for m in body.get("messages") or []:
@@ -144,34 +157,56 @@ class SubagentAttacher:
 
         if pending:
             self.child_candidates += 1
-        free = [p for p in pending if p["claimed_by"] is None]      # claimed calls cannot take a second child
 
-        chosen, signals, conf = None, [], None
-        echoes = [p for p in free if usable_needle and needle in p["args"]]
-        if len(echoes) > 1:
-            # siblings can share a long preamble: the child's whole prompt may still single one out
-            exact = [p for p in echoes if full and full in p["args_full"]]
-            if exact:
-                echoes = exact
-        if len(echoes) == 1:
-            chosen, signals, conf = echoes[0], ["echo", "overlap"], "high"
-        elif len(echoes) > 1:
-            # several open calls contain this prompt equally well (identical prompts): nothing
-            # separates them, so say so instead of picking one and calling it high
-            rec["overlap_candidates"] = len(echoes)
-        elif len(free) == 1:
-            # exactly one call could have spawned it. If others were open but are already claimed,
-            # that is elimination (weaker than a direct look at one call, so labelled as such).
-            chosen, conf = free[0], "medium"
-            signals = ["overlap"] if len(pending) == 1 else ["overlap", "elimination"]
-        elif len(free) > 1:
-            # with several unclaimed calls (e.g. Agent + Read in parallel) picking one is a guess
-            rec["overlap_candidates"] = len(free)
+        # The parent is the MODEL CALL that issued the tool calls. Every helper started by one call
+        # attaches to that call, however many tool calls it issued. Which tool call inside it is a
+        # finer detail, filled in only when it can be known.
+        groups: dict[str, list[dict]] = {}
+        for p in pending:
+            groups.setdefault(p["call_id"], []).append(p)
+        # A call stays a candidate while any of its tool calls is open, claimed or not: one call can
+        # start more helpers than it has tool calls. But when other calls still have an UNCLAIMED
+        # tool, those are the likelier parents (a fully claimed call is probably already accounted
+        # for, as with a nested subagent whose own call is the newer one). Prefer them.
+        has_free = {cid: g for cid, g in groups.items() if any(p["claimed_by"] is None for p in g)}
+        open_calls = has_free or groups
 
-        if chosen is not None:
-            chosen["claimed_by"] = rec["call_id"]
-            rec["parent_call_id"] = chosen["call_id"]
-            rec["subagent_edge"] = {"parent_call_id": chosen["call_id"], "tool_call_id": chosen["tool_call_id"],
+        def echo_tools(g: list[dict]) -> list[dict]:
+            hits = [p for p in g if p["claimed_by"] is None and usable_needle and needle in p["args"]]
+            if len(hits) > 1:                        # siblings sharing a preamble: use the whole prompt
+                exact = [p for p in hits if full and full in p["args_full"]]
+                hits = exact or hits
+            return hits
+
+        echo_calls = {cid: echo_tools(g) for cid, g in open_calls.items()}
+        echo_calls = {cid: h for cid, h in echo_calls.items() if h}
+
+        chosen_call, tool, signals, conf = None, None, [], None
+        if len(echo_calls) == 1:
+            (cid, hits), = echo_calls.items()
+            chosen_call, conf, signals = cid, "high", ["echo", "overlap"]
+            tool = hits[0] if len(hits) == 1 else None      # identical sibling prompts: call known, tool not
+        elif len(echo_calls) > 1:
+            rec["overlap_candidates"] = len(echo_calls)     # the prompt appears in calls from different steps
+        elif len(open_calls) == 1:
+            (cid, g), = open_calls.items()
+            free = [p for p in g if p["claimed_by"] is None]
+            chosen_call, conf = cid, "medium"
+            if len(g) == 1:
+                tool, signals = (g[0] if not g[0]["claimed_by"] else None), ["overlap"]
+            elif len(free) == 1:                            # the others are already claimed by siblings
+                tool, signals = free[0], ["overlap", "elimination"]
+            else:
+                signals = ["overlap"]
+        elif len(open_calls) > 1:
+            rec["overlap_candidates"] = len(open_calls)     # several different steps were open: a guess
+
+        if chosen_call is not None:
+            if tool is not None:
+                tool["claimed_by"] = rec["call_id"]
+            rec["parent_call_id"] = chosen_call
+            rec["subagent_edge"] = {"parent_call_id": chosen_call,
+                                    "tool_call_id": tool["tool_call_id"] if tool else None,
                                     "confidence": conf, "signals": signals, "score": SCORES[conf]}
             self.attached += 1
             return
