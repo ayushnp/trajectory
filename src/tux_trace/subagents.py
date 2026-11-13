@@ -100,7 +100,8 @@ class SubagentAttacher:
         self.max_pending = max_pending
         # (client, tool id) -> pending call
         self._pending: OrderedDict[tuple, dict] = OrderedDict()
-        self.child_candidates = 0
+        self._session_parent: dict[str, str] = {}      # session -> the call it is attached to (clients are
+        self.child_candidates = 0                      # kept apart by the pending keys, not here)
         self.unattached = 0
         self.attached = 0
 
@@ -158,6 +159,15 @@ class SubagentAttacher:
         if pending:
             self.child_candidates += 1
 
+        # A call issued by a session that hangs off ANOTHER open candidate is that candidate's child.
+        # While that candidate still has an UNCLAIMED tool, it is still launching helpers, so the
+        # child's own call (e.g. helper 1's Bash) is a sibling of this one, not its parent. This stops
+        # helper 3 attaching to helper 1's Bash call when one parent call started all three. Once the
+        # outer call is fully claimed it is accounted for, and the subagent's own call stays a
+        # candidate (the nested case).
+        still_launching = {p["call_id"] for p in pending if p["claimed_by"] is None}
+        pending = [p for p in pending if self._session_parent.get(p["session_id"]) not in still_launching]
+
         # The parent is the MODEL CALL that issued the tool calls. Every helper started by one call
         # attaches to that call, however many tool calls it issued. Which tool call inside it is a
         # finer detail, filled in only when it can be known.
@@ -209,6 +219,8 @@ class SubagentAttacher:
                                     "tool_call_id": tool["tool_call_id"] if tool else None,
                                     "confidence": conf, "signals": signals, "score": SCORES[conf]}
             self.attached += 1
+            if rec.get("session_id"):
+                self._session_parent[rec["session_id"]] = chosen_call
             return
 
         # Echo without overlap is a weak (low) signal: reported, not attached.

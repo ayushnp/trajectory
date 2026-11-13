@@ -455,3 +455,35 @@ def test_different_steps_open_at_once_with_no_echo_is_still_not_guessed():
     feed(a, parent("p_new", "s2", t_end=4, tools=[{"id": "t_new", "name": "Agent", "args": "{}"}]))
     c = feed(a, child(t_received=6), first_text="nothing in common with either call")
     assert c.get("parent_call_id") is None and c["unattached"] is True and c["overlap_candidates"] == 2
+
+
+def test_a_sibling_helpers_own_tool_call_is_not_mistaken_for_the_parent():
+    """Real run: helper 1 starts, runs Bash; helper 3 then starts while that Bash is open. The parent
+    is still the call that issued all three Agents, not the sibling's Bash call."""
+    a = SubagentAttacher()
+    feed(a, parent("p1", "SP", t_end=2, tools=[agent("t1", "Count the lines in config.py and report them"),
+                                               agent("t2", "Count the lines in chain.py and report them"),
+                                               agent("t3", "Count the lines in tools.py and report them")]))
+    c1 = feed(a, child("c1", "S1", t_received=3), first_text="Count the lines in config.py and report them")
+    sib = child("c1b", "S1", t_received=3, step=0)
+    sib["response"]["tool_calls"] = [{"id": "bash1", "name": "Bash", "args": json.dumps({"command": "wc -l a"})}]
+    c2 = feed(a, child("c2", "S2", t_received=4), first_text="Count the lines in chain.py and report them")
+    # a Bash call issued by helper 1 is now open, and helper 3 starts
+    helper1_bash = parent("c1_bash", "S1", t_received=3, t_end=3,
+                          tools=[{"id": "bash1", "name": "Bash", "args": json.dumps({"command": "wc -l a"})}])
+    helper1_bash["step_index"] = 1          # helper 1's own later call, not a new chain root
+    feed(a, helper1_bash)
+    c3 = feed(a, child("c3", "S3", t_received=5), first_text="Count the lines in tools.py and report them")
+    assert c1["parent_call_id"] == c2["parent_call_id"] == c3["parent_call_id"] == "p1"
+
+
+def test_sibling_call_is_skipped_even_when_the_third_helper_prompt_is_not_found_in_any_argument():
+    a = SubagentAttacher()
+    feed(a, parent("p1", "SP", t_end=2, tools=[agent("t1", "Count the lines in config.py and report them"),
+                                               agent("t2", "Count the lines in chain.py and report them")]))
+    feed(a, child("c1", "S1", t_received=3), first_text="Count the lines in config.py and report them")
+    h1 = parent("c1_bash", "S1", t_received=3, t_end=3, tools=[{"id": "bash1", "name": "Bash", "args": "{}"}])
+    h1["step_index"] = 1                    # helper 1's own later call, not a new chain root
+    feed(a, h1)
+    c2 = feed(a, child("c2", "S2", t_received=5), first_text="a prompt that is nowhere in the arguments at all")
+    assert c2["parent_call_id"] == "p1"
