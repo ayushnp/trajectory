@@ -173,6 +173,9 @@ elimination (medium, never high).
 grandchild starts, the outer call is already claimed by the subagent, so the subagent's own call is
 preferred over it.
 
+**Windows paths.** A child's prompt is plain text and is never unescaped; only a tool call's JSON
+arguments are. Otherwise a path like `C:\Tracer	ux-trace` would have its `	` read as a tab.
+
 **Harness boilerplate.** Claude Code puts `<system-reminder>` blocks before the real instruction in a
 helper's first message. They are identical for every helper, so they are skipped when matching.
 
@@ -277,15 +280,18 @@ non-streamed requests, which have no first token by definition). 9 tool calls re
 **Parallel subagents on real Claude Code traffic**, three runs of three helpers started in one step.
 Run 1: none attached (Claude Code's `<system-reminder>` blocks were being compared instead of the
 instruction; fixed). Run 2: two attached, the third latched onto a sibling's `Bash` call (fixed).
-Run 3, after both fixes: all three attached to the same parent call, `unattached_rate` 0.0. They came
-out at **medium** confidence with the tool call blank, not high: the prompt echo did not match in that
-run, and the cause is not yet found.
+Run 3, after both fixes: all three attached to the same parent call, `unattached_rate` 0.0, but at
+**medium** confidence with the tool call blank. The cause was the prompt echo failing on Windows paths:
+the child's prompt is plain text (`C:\My Projects\Tracer	ux-trace`) while the parent's arguments are
+JSON, and the matcher was decoding `	` in the plain text as a tab. Fixed by decoding JSON escapes on
+the arguments only. Run 4, after that: all three at **high** confidence (`echo` + `overlap`), each
+matched to its own tool call.
 
 **opencode** (one session, 8 steps, `gpt-6-luna` over `/v1/responses`): all calls recorded as
 `openai_responses` with tokens, cache read and write, tool calls (7 issued, 7 results paired) and an
 `exact` green estimate; `record_errors`, `chain_errors`, `green_errors` and `dropped_records` all 0.
 
-**Tests**: 232 pass, 1 skipped (creating a symlink needs a privilege this account lacks; the Windows
+**Tests**: 236 pass, 1 skipped (creating a symlink needs a privilege this account lacks; the Windows
 directory-junction version of the same safety test does run).
 
 ## Known gaps and uncertainties
@@ -336,7 +342,7 @@ src/tux_trace/
   green.py green_view.py    EcoLogits integration (config/model_map.yaml); window aggregation
   content.py retention.py index_db.py   content + redaction, retention, SQLite
   api.py sessions.py conversation.py static/   read API, session views, readable prompt/reply, dashboard
-tests/                      232 tests, real Tux streams in tests/fixtures/
+tests/                      236 tests, real Tux streams in tests/fixtures/
 ```
 
 `tests/bench_oop.py` re-measures overhead. It runs its proxy against a throwaway data directory; an

@@ -38,6 +38,7 @@ from __future__ import annotations
 import re
 from collections import OrderedDict
 
+BS = chr(92)                 # one backslash, spelled out so no string-escape rule can touch it
 ECHO_CHARS = 200
 MIN_ECHO_CHARS = 12          # shorter prompts ("ok", "continue") match too much to mean anything
 _WS = re.compile(r"\s+")
@@ -45,13 +46,26 @@ _WRAPPER = re.compile(r"^<([a-z][a-z0-9_-]*)>[\s\S]*</\1>$")
 SCORES = {"high": 0.85, "medium": 0.5, "low": 0.25}
 
 
+def normalize_text(text: str, n: int = ECHO_CHARS) -> str:
+    """Whitespace-collapsed, lowercased, first n chars of PLAIN text (a child's prompt).
+
+    Nothing is unescaped: in plain text a backslash is just a character. A Windows path whose
+    directory name starts with t or n would otherwise be read as a tab or newline."""
+    return _WS.sub(" ", text or "").strip().lower()[:n]
+
+
+def _unjson(t: str) -> str:
+    """Undo JSON string escapes, so text embedded in a tool call's arguments compares equal to the
+    original. Only for text that really is JSON (a tool call's `args`)."""
+    if BS not in t:
+        return t
+    return (t.replace(BS * 2, "\x00").replace(BS + "n", " ").replace(BS + "t", " ")
+             .replace(BS + '"', '"').replace("\x00", BS))
+
+
 def normalize(text: str, n: int = ECHO_CHARS) -> str:
-    """Whitespace-collapsed, lowercased, first n chars. JSON string escapes are undone first so
-    text embedded in a tool call's JSON arguments (\\n, \\\\, \\") compares equal to the original."""
-    t = text or ""
-    if "\\" in t:
-        t = t.replace("\\\\", "\x00").replace("\\n", " ").replace("\\t", " ").replace('\\"', '"').replace("\x00", "\\")
-    return _WS.sub(" ", t).strip().lower()[:n]
+    """Plain-text normal form. Kept as the name callers use for a child's prompt."""
+    return normalize_text(text, n)
 
 
 def _is_wrapper(text: str) -> bool:
@@ -142,7 +156,7 @@ class SubagentAttacher:
         t = rec["timing"]["t_received"]
         needle = normalize(first_text or "")
         usable_needle = len(needle) >= MIN_ECHO_CHARS
-        full = normalize_args(first_text or "")      # the whole prompt, for telling siblings apart
+        full = normalize_text(first_text or "", n=1_000_000)   # the whole prompt, for telling siblings apart
 
         pending = []       # tool calls from other sessions of this client that are open right now
         for (c, _), p in self._pending.items():
@@ -247,5 +261,6 @@ class SubagentAttacher:
 
 
 def normalize_args(args: str) -> str:
-    """Tool-call arguments in the same normal form as `normalize`, but over the whole string."""
-    return normalize(args, n=1_000_000)
+    """A tool call's JSON arguments in the same normal form as `normalize_text`: JSON escapes undone,
+    then whitespace-collapsed and lowercased, over the whole string."""
+    return normalize_text(_unjson(args or ""), n=1_000_000)

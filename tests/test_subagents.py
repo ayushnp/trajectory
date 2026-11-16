@@ -1,7 +1,7 @@
 """M5: subagent attachment, confidence labels and the unattached bucket."""
 import json
 
-from tux_trace.subagents import MIN_ECHO_CHARS, SubagentAttacher, first_human_text, normalize
+from tux_trace.subagents import MIN_ECHO_CHARS, SubagentAttacher, first_human_text, normalize, normalize_args
 
 S = 1_000_000_000
 PROMPT = "Read the file C:\\Users\\me\\proj\\a.txt and report its exact contents back, verbatim."
@@ -197,7 +197,7 @@ def test_short_prompts_are_not_treated_as_an_echo():
 
 def test_echo_survives_json_escaping_whitespace_and_case():
     args = json.dumps({"prompt": "Read the file  C:\\Users\\me\\a.txt\nand REPORT it"})
-    assert normalize("read the file c:\\users\\me\\a.txt and report it") in normalize(args)
+    assert normalize("read the file c:\\users\\me\\a.txt and report it") in normalize_args(args)
     a = SubagentAttacher()
     feed(a, parent(tools=[{"id": "t", "name": "Agent", "args": args}]))
     c = feed(a, child(), first_text="Read the file C:\\Users\\me\\a.txt\n   and report it")
@@ -487,3 +487,45 @@ def test_sibling_call_is_skipped_even_when_the_third_helper_prompt_is_not_found_
     feed(a, h1)
     c2 = feed(a, child("c2", "S2", t_received=5), first_text="a prompt that is nowhere in the arguments at all")
     assert c2["parent_call_id"] == "p1"
+
+
+# ---------------------------------------------------------------- Windows paths (found on real traffic)
+# Paths are built with chr(92) on purpose: written as string literals, Python's own escape rules would
+# silently turn a backslash-t into a tab and the test would no longer describe real data.
+BS = chr(92)
+WIN_DIR = BS.join(["C:", "My Projects", "Tracer", "tux-trace"])       # contains backslash + t, as in real use
+
+
+def win_prompt(name="store.py"):
+    return f"You are a read-only helper for the project at {WIN_DIR}. Run wc on src{BS}tux_trace{BS}{name} and report it."
+
+
+def test_a_windows_path_in_the_childs_plain_text_prompt_still_echoes_into_json_arguments():
+    """The child's prompt is plain text: backslash-t is a path separator plus a letter, not a tab. The parent's
+    arguments are JSON, where the same path is written with doubled backslashes."""
+    p = win_prompt()
+    assert p.count(BS) == 5 and json.dumps({"prompt": p}).count(BS) == 10     # the real asymmetry
+    a = SubagentAttacher()
+    feed(a, parent(tools=[{"id": "t1", "name": "Agent", "args": json.dumps({"prompt": p})}]))
+    c = feed(a, child(), first_text=p)
+    assert c["subagent_edge"]["confidence"] == "high" and c["subagent_edge"]["tool_call_id"] == "t1"
+
+
+def test_plain_text_is_never_unescaped():
+    from tux_trace.subagents import normalize_text
+    s = f"C:{BS}new{BS}tests{BS}x"
+    assert normalize_text(s) == s.lower()
+
+
+def test_json_arguments_are_unescaped_so_embedded_text_matches():
+    from tux_trace.subagents import normalize_args, normalize_text
+    original = f"line one\nline two C:{BS}tux"
+    assert normalize_text(original) in normalize_args(json.dumps({"p": original}))
+
+
+def test_siblings_with_windows_paths_are_told_apart_by_the_whole_prompt():
+    prompts = [win_prompt("a.py"), win_prompt("b.py")]
+    a = SubagentAttacher()
+    feed(a, parent(tools=[{"id": f"t{i}", "name": "Agent", "args": json.dumps({"prompt": x})} for i, x in enumerate(prompts)]))
+    edges = [feed(a, child(f"c{i}", f"s{i}"), first_text=x)["subagent_edge"] for i, x in enumerate(prompts)]
+    assert [e["tool_call_id"] for e in edges] == ["t0", "t1"] and all(e["confidence"] == "high" for e in edges)
