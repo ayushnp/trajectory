@@ -50,8 +50,17 @@ ANTHROPIC_BASE_URL=http://127.0.0.1:18081 claude
 
 ### opencode
 
-In `opencode.json` change `baseURL` from `http://127.0.0.1:18080/v1` to `http://127.0.0.1:18081/v1`.
-Not tested against a real opencode session; both of its wire formats are covered by real Tux streams.
+In `opencode.json` point the provider's `baseURL` at the proxy instead of Tux:
+`http://127.0.0.1:18080/v1` becomes `http://127.0.0.1:18081/v1`.
+
+> **Keep the `/v1`.** opencode appends the endpoint name to whatever base URL it is given. Without the
+> `/v1` it calls `/responses`, which Tux answers with `404 {"detail":"Not Found"}` (the proxy just
+> relays it, and records it as a non-model request). With it, the call is `/v1/responses` and works.
+> A provider that uses the Anthropic package may want a base URL without `/v1`, since that package adds
+> `/v1/messages` itself; check each provider's own `baseURL` if one of them returns 404.
+
+Confirm it worked the same way as for Claude Code: `calls_total` on `/stats` rises, and the dashboard
+shows the session with `harness opencode`.
 
 ### Paths
 
@@ -265,12 +274,26 @@ non-streamed requests, which have no first token by definition). 9 tool calls re
 `parse_errors`, `chain_errors`, `green_errors`, `record_errors` and `dropped_records` were all 0;
 `unattached_rate` was 0.0 and the real delegation attached at **high** confidence.
 
-**Tests**: 192 pass, 1 skipped (creating a symlink needs a privilege this account lacks; the Windows
+**Parallel subagents on real Claude Code traffic**, three runs of three helpers started in one step.
+Run 1: none attached (Claude Code's `<system-reminder>` blocks were being compared instead of the
+instruction; fixed). Run 2: two attached, the third latched onto a sibling's `Bash` call (fixed).
+Run 3, after both fixes: all three attached to the same parent call, `unattached_rate` 0.0. They came
+out at **medium** confidence with the tool call blank, not high: the prompt echo did not match in that
+run, and the cause is not yet found.
+
+**opencode** (one session, 8 steps, `gpt-6-luna` over `/v1/responses`): all calls recorded as
+`openai_responses` with tokens, cache read and write, tool calls (7 issued, 7 results paired) and an
+`exact` green estimate; `record_errors`, `chain_errors`, `green_errors` and `dropped_records` all 0.
+
+**Tests**: 232 pass, 1 skipped (creating a symlink needs a privilege this account lacks; the Windows
 directory-junction version of the same safety test does run).
 
 ## Known gaps and uncertainties
 
-* **opencode** was not run end to end. Its two wire formats are tested on real Tux streams.
+* **opencode** was run end to end once, with one OpenAI model (`gpt-6-luna` over `/v1/responses`): one
+  session of 8 steps, tokens, cache read and write, tool calls and results paired (7 of 7), and a green
+  estimate on every call. Not run: opencode with a Claude model (the Anthropic package), with
+  `/v1/chat/completions`, or with subagents.
 * **Subagent attachment** is validated on real traffic for a single subagent from Claude Code only.
   Parallel and nested subagents are covered by synthetic tests, not real traffic. One thing is
   assumed, not measured: that every sibling's request arrives while all of the batch's calls are
@@ -310,10 +333,10 @@ src/tux_trace/
   record.py parsers/        call record, per-format SSE parsers
   usage.py timing.py        token mapping, timing marks
   chain.py tools.py subagents.py   sessions, tool pairing, subagent attachment
-  green.py                  EcoLogits integration;  config/model_map.yaml
+  green.py green_view.py    EcoLogits integration (config/model_map.yaml); window aggregation
   content.py retention.py index_db.py   content + redaction, retention, SQLite
-  api.py sessions.py static/   read API and dashboard
-tests/                      192 tests, real Tux streams in tests/fixtures/
+  api.py sessions.py conversation.py static/   read API, session views, readable prompt/reply, dashboard
+tests/                      232 tests, real Tux streams in tests/fixtures/
 ```
 
 `tests/bench_oop.py` re-measures overhead. It runs its proxy against a throwaway data directory; an
