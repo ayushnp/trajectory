@@ -174,7 +174,7 @@ grandchild starts, the outer call is already claimed by the subagent, so the sub
 preferred over it.
 
 **Windows paths.** A child's prompt is plain text and is never unescaped; only a tool call's JSON
-arguments are. Otherwise a path like `C:\Tracer	ux-trace` would have its `	` read as a tab.
+arguments are. Otherwise a path like `C:\Tracer\tux-trace` would have its `\t` read as a tab.
 
 **Harness boilerplate.** Claude Code puts `<system-reminder>` blocks before the real instruction in a
 helper's first message. They are identical for every helper, so they are skipped when matching.
@@ -282,8 +282,8 @@ Run 1: none attached (Claude Code's `<system-reminder>` blocks were being compar
 instruction; fixed). Run 2: two attached, the third latched onto a sibling's `Bash` call (fixed).
 Run 3, after both fixes: all three attached to the same parent call, `unattached_rate` 0.0, but at
 **medium** confidence with the tool call blank. The cause was the prompt echo failing on Windows paths:
-the child's prompt is plain text (`C:\My Projects\Tracer	ux-trace`) while the parent's arguments are
-JSON, and the matcher was decoding `	` in the plain text as a tab. Fixed by decoding JSON escapes on
+the child's prompt is plain text (`C:\My Projects\Tracer\tux-trace`) while the parent's arguments are
+JSON, and the matcher was decoding `\t` in the plain text as a tab. Fixed by decoding JSON escapes on
 the arguments only. Run 4, after that: all three at **high** confidence (`echo` + `overlap`), each
 matched to its own tool call.
 
