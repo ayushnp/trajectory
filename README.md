@@ -1,11 +1,11 @@
-# tux-trace
+# trajectory
 
 A small local proxy that sits between a coding agent (Claude Code, opencode, ...) and the Tux model
 gateway. It relays every request unchanged, and records one structured trace per model call:
 timings, tokens, cache counters, tool calls, sessions/steps/turns, subagents and an energy estimate.
 
 ```
-agent  ──►  tux-trace :18081  ──►  Tux :18080
+agent  ──►  trajectory :18081  ──►  Tux :18080
                 │
                 └─ records (JSONL, source of truth) ─► SQLite index ─► dashboard /_trace
 ```
@@ -19,8 +19,8 @@ complete response.
 ```bash
 python -m venv .venv
 .venv/Scripts/python -m pip install -e ".[dev,green]"      # Windows; use .venv/bin/python elsewhere
-.venv/Scripts/python -m tux_trace serve                    # listens on 127.0.0.1:18081
-.venv/Scripts/python -m tux_trace smoke                    # first thing to run on a new machine
+.venv/Scripts/python -m trajectory serve                    # listens on 127.0.0.1:18081
+.venv/Scripts/python -m trajectory smoke                    # first thing to run on a new machine
 ```
 
 Open the dashboard at **http://127.0.0.1:18081/_trace**.
@@ -174,7 +174,7 @@ grandchild starts, the outer call is already claimed by the subagent, so the sub
 preferred over it.
 
 **Windows paths.** A child's prompt is plain text and is never unescaped; only a tool call's JSON
-arguments are. Otherwise a path like `C:\Tracer\tux-trace` would have its `\t` read as a tab.
+arguments are. Otherwise a path like `C:\Tracer\trajectory` would have its `\t` read as a tab.
 
 **Harness boilerplate.** Claude Code puts `<system-reminder>` blocks before the real instruction in a
 helper's first message. They are identical for every helper, so they are skipped when matching.
@@ -204,8 +204,8 @@ review.
 
 ## Configuration
 
-`config/config.yaml`, any key overridable by environment as `TUX_TRACE_<SECTION>__<KEY>` (e.g.
-`TUX_TRACE_LISTEN__PORT=19000`, `TUX_TRACE_STORE_CONTENT=false`). Invalid config refuses to start.
+`config/config.yaml`, any key overridable by environment as `TRAJECTORY_<SECTION>__<KEY>` (e.g.
+`TRAJECTORY_LISTEN__PORT=19000`, `TRAJECTORY_STORE_CONTENT=false`). Invalid config refuses to start.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -316,7 +316,7 @@ directory-junction version of the same safety test does run).
   mid-conversation orphans in-flight pairing; those results are counted as unmatched, not invented.
 * **The dashboard reads the SQLite index** (schema v2 keeps a full copy of each record, so no scan of
   the JSONL and no 20,000-record cap). JSONL is still the source of truth: an index from an older schema
-  is dropped and refilled from it at startup, and `tux-trace reindex` rebuilds it on demand. With
+  is dropped and refilled from it at startup, and `trajectory reindex` rebuilds it on demand. With
   `sqlite_index: false` the dashboard falls back to reading the JSONL into memory (capped at 20,000
   records). It polls every 3 s; untested at tens of thousands of sessions.
 * **Dashboard layout** was checked in headless Edge at 1400-1600 px wide, in both themes. Narrow
@@ -333,7 +333,7 @@ directory-junction version of the same safety test does run).
 ## Layout
 
 ```
-src/tux_trace/
+src/trajectory/
   app.py proxy.py           ingress and the byte-for-byte relay (fast path)
   tee.py store.py           bounded queue and the single writer thread (slow path)
   record.py parsers/        call record, per-format SSE parsers

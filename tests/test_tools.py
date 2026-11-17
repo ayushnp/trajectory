@@ -1,8 +1,8 @@
 """M4: tool call <-> result pairing, gap_ms, result sizes."""
 import json
 
-from tux_trace.chain import digest_request
-from tux_trace.tools import ToolPairer, extract_results, join_results
+from trajectory.chain import digest_request
+from trajectory.tools import ToolPairer, extract_results, join_results
 
 S = 1_000_000_000
 

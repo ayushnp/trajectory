@@ -1,6 +1,6 @@
 import json
 
-from tux_trace.conversation import build
+from trajectory.conversation import build
 
 
 def _sse(*events):
@@ -62,6 +62,6 @@ def test_non_json_request_does_not_crash():
 def test_favicon_is_answered_locally():
     from starlette.applications import Starlette
     from starlette.testclient import TestClient
-    from tux_trace import api
+    from trajectory import api
     r = TestClient(Starlette(routes=api.routes())).get("/favicon.ico")
     assert r.status_code == 204

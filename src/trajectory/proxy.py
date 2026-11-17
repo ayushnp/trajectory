@@ -21,7 +21,7 @@ from starlette.responses import Response, StreamingResponse
 from .parsers import detect_format
 from .record import CallTrace, credential_hash
 
-log = logging.getLogger("tux_trace.proxy")
+log = logging.getLogger("trajectory.proxy")
 
 # Hop-by-hop headers describe one TCP connection, not the message; they must not be relayed.
 HOP_BY_HOP = {
@@ -129,7 +129,7 @@ async def relay(request: Request) -> Response:
             trace.status = status
             trace.error = {"type": type(e).__name__, "message": msg, "status": status}
         _finish(state, trace)
-        return Response(('{"error":"tux-trace: %s"}' % msg).encode(), status, media_type="application/json")
+        return Response(('{"error":"trajectory: %s"}' % msg).encode(), status, media_type="application/json")
 
     if trace is not None:
         trace.t_headers = time.monotonic_ns()

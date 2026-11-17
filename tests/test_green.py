@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from tux_trace.green import Estimator
+from trajectory.green import Estimator
 
 pytest.importorskip("ecologits")
 
@@ -152,7 +152,7 @@ def test_end_to_end_through_proxy(proxy_factory):
 def test_failopen_when_estimator_explodes(proxy_factory, monkeypatch):
     import httpx
 
-    import tux_trace.green as green
+    import trajectory.green as green
     monkeypatch.setattr(green.Estimator, "_estimate", lambda self, rec: 1 / 0)
     proxy, _, _ = proxy_factory([b"data: x\n\n"])
     r = httpx.post(proxy + "/v1/messages", content=b"{}")
@@ -165,7 +165,7 @@ def test_silencing_the_library_logger_does_not_break_it():
     import subprocess
     import sys
     code = "\n".join([
-        "from tux_trace.green import Estimator",
+        "from trajectory.green import Estimator",
         "e = Estimator(True, 'config/model_map.yaml', None)",
         "r = {'request': {'format': 'anthropic', 'model_requested': 'claude-haiku-5-5'},",
         "     'response': {'model_served': 'claude-haiku-5-5'},",

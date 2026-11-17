@@ -1,7 +1,7 @@
 """M3: sessions, steps, turns. Conversations are built the way real agents build them."""
 import pytest
 
-from tux_trace.chain import Chainer, digest_request
+from trajectory.chain import Chainer, digest_request
 
 S = 1_000_000_000  # 1 s in ns
 

@@ -12,7 +12,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).parent))
 from conftest import Server, create_app, free_port, make_stub  # noqa: E402
-from tux_trace.config import Config  # noqa: E402
+from trajectory.config import Config  # noqa: E402
 
 N = 500
 BODY = b'{"model":"x","messages":[]}'

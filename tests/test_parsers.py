@@ -4,10 +4,10 @@ from pathlib import Path
 
 import pytest
 
-from tux_trace import usage as U
-from tux_trace.parsers import make_parser
-from tux_trace.parsers.sse import SSEReader
-from tux_trace.record import CallTrace
+from trajectory import usage as U
+from trajectory.parsers import make_parser
+from trajectory.parsers.sse import SSEReader
+from trajectory.record import CallTrace
 
 FIX = Path(__file__).parent / "fixtures"
 MS = 1_000_000
@@ -187,7 +187,7 @@ def test_ttft_from_known_chunk_arrival_times():
     c3 = ev("content_block_delta", {"type": "content_block_delta", "index": 0,
                                     "delta": {"type": "text_delta", "text": "b"}}) + \
         ev("message_stop", {"type": "message_stop"})
-    from tux_trace import timing
+    from trajectory import timing
     p, rd = make_parser("anthropic"), SSEReader()
     times = [1_000 * MS + 100 * MS, 1_000 * MS + 300 * MS, 1_000 * MS + 900 * MS]
     for c, t in zip((c1, c2, c3), times):
@@ -200,7 +200,7 @@ def test_ttft_from_known_chunk_arrival_times():
 
 
 def test_timing_marks_that_never_happened_are_null_not_zero():
-    from tux_trace import timing
+    from trajectory import timing
     d = timing.derive(0, None, None, None, [5 * MS])
     assert d["ttft_any_ms"] is None and d["ttft_visible_ms"] is None and d["total_ms"] is None
     assert d["inter_chunk_p50_ms"] is None
@@ -284,7 +284,7 @@ def test_fixture_chunking_invariance(fmt):
 def test_tool_call_records_when_it_first_appeared_not_when_the_stream_ended():
     def ev(t, o):
         return f"event: {t}\ndata: {json.dumps(o)}\n\n".encode()
-    from tux_trace.parsers.sse import SSEReader
+    from trajectory.parsers.sse import SSEReader
     p, rd = make_parser("anthropic"), SSEReader()
     chunks = [(100 * MS, ev("content_block_start", {"type": "content_block_start", "index": 0,
                             "content_block": {"type": "tool_use", "id": "t", "name": "Agent", "input": {"prompt": "x"}}})),

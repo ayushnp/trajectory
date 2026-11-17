@@ -11,8 +11,8 @@ from starlette.requests import Request
 from starlette.responses import Response, StreamingResponse
 from starlette.routing import Route
 
-from tux_trace.app import create_app
-from tux_trace.config import Config
+from trajectory.app import create_app
+from trajectory.config import Config
 
 
 def free_port() -> int:

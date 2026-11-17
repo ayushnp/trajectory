@@ -68,7 +68,7 @@ def cmd_smoke(args) -> int:
     try:
         h = httpx.get(base + "/healthz", timeout=5).json()
     except Exception as e:
-        print(f"FAIL  cannot reach the proxy at {base}: {type(e).__name__}. Is `tux-trace serve` running?")
+        print(f"FAIL  cannot reach the proxy at {base}: {type(e).__name__}. Is `trajectory serve` running?")
         return 2
     print(f"proxy  {base}  status={h['status']}  upstream_reachable={h['upstream_reachable']}")
     if not h["upstream_reachable"]:
@@ -108,7 +108,7 @@ def cmd_smoke(args) -> int:
 
 
 def main(argv=None) -> None:
-    ap = argparse.ArgumentParser(prog="tux-trace")
+    ap = argparse.ArgumentParser(prog="trajectory")
     sub = ap.add_subparsers(dest="cmd", required=True)
     for name, fn, help_ in (("serve", cmd_serve, "run the proxy"),
                             ("reindex", cmd_reindex, "rebuild the SQLite index from the JSONL files"),

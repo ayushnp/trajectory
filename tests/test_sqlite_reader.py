@@ -3,9 +3,9 @@ in-memory one could not (more than MAX_IN_MEMORY records, an old-schema index)."
 import json
 import sqlite3
 
-from tux_trace import sessions as sess
-from tux_trace.index_db import SCHEMA_VERSION, SqliteIndex
-from tux_trace.tools import join_results
+from trajectory import sessions as sess
+from trajectory.index_db import SCHEMA_VERSION, SqliteIndex
+from trajectory.tools import join_results
 
 
 def call(cid, sid, step, turn=0, parent=None, tools=(), results=(), at=None, green=True):

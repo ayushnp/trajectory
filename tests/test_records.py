@@ -6,8 +6,8 @@ import time
 
 import httpx
 
-from tux_trace.record import CallTrace
-from tux_trace.tee import Tee
+from trajectory.record import CallTrace
+from trajectory.tee import Tee
 
 SSE = [b"data: 1\n\n", b"data: 2\n\n", b"data: [DONE]\n\n"]
 
@@ -89,8 +89,8 @@ def test_client_disconnect_is_recorded_incomplete(proxy_factory):
 def test_upstream_down_is_recorded_as_error():
     from starlette.testclient import TestClient
 
-    from tux_trace.app import create_app
-    from tux_trace.config import Config
+    from trajectory.app import create_app
+    from trajectory.config import Config
     import tempfile
     d = tempfile.mkdtemp()
     with TestClient(create_app(Config(upstream={"base_url": "http://127.0.0.1:1"}, data_dir=d))) as c:
@@ -124,7 +124,7 @@ def test_failopen_when_recording_is_broken(proxy_factory, monkeypatch):
     proxy, _, _ = proxy_factory(SSE)
     monkeypatch.setattr(CallTrace, "to_record", lambda self: 1 / 0)          # writer-side bug
     r1 = httpx.post(proxy + "/v1/messages", content=b"{}")
-    import tux_trace.proxy as px
+    import trajectory.proxy as px
     monkeypatch.setattr(px, "detect_format", lambda p: 1 / 0)                # request-side bug
     r2 = httpx.post(proxy + "/v1/messages", content=b"{}")
     for r in (r1, r2):
@@ -134,7 +134,7 @@ def test_failopen_when_recording_is_broken(proxy_factory, monkeypatch):
 
 def test_writer_survives_unwritable_disk(tmp_path):
     q = queue.Queue()
-    from tux_trace.store import JsonlWriter
+    from trajectory.store import JsonlWriter
     w = JsonlWriter(q, tmp_path)
     w.start()
     (tmp_path / "calls").rmdir()

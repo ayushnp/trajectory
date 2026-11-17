@@ -1,4 +1,4 @@
-"""Load and validate config. YAML file, overridable by TUX_TRACE_<SECTION>__<KEY> env vars."""
+"""Load and validate config. YAML file, overridable by TRAJECTORY_<SECTION>__<KEY> env vars."""
 from __future__ import annotations
 
 import json
@@ -67,7 +67,7 @@ class Config(_Strict):
             raise ValueError("upstream.base_url must start with http:// or https://")
 
 
-ENV_PREFIX = "TUX_TRACE_"
+ENV_PREFIX = "TRAJECTORY_"
 
 
 def _apply_env(data: dict[str, Any], env: dict[str, str]) -> None:

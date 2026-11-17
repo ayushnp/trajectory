@@ -67,7 +67,7 @@ async def metrics(request: Request) -> PlainTextResponse:
     for k, v in snap.items():
         if isinstance(v, bool) or not isinstance(v, (int, float)):
             continue
-        name = "tux_trace_" + k
+        name = "trajectory_" + k
         kind = "counter" if k in COUNTERS else "gauge"
         lines += [f"# TYPE {name} {kind}", f"{name} {v}"]
     return PlainTextResponse("\n".join(lines) + "\n", media_type="text/plain; version=0.0.4")
@@ -82,7 +82,7 @@ def create_app(cfg: Config) -> Starlette:
         sq = app.state.sqlite
         if sq is not None and sq.needs_backfill:         # first run on a new schema: refill from JSONL
             n = await asyncio.to_thread(sq.backfill, cfg.data_dir)
-            logging.getLogger("tux_trace").info("sqlite index refilled from JSONL: %d records", n)
+            logging.getLogger("trajectory").info("sqlite index refilled from JSONL: %d records", n)
         app.state.retention.start()
         yield
         app.state.retention.stop()

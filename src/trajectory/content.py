@@ -16,7 +16,7 @@ import logging
 import re
 from pathlib import Path
 
-log = logging.getLogger("tux_trace.content")
+log = logging.getLogger("trajectory.content")
 MASK = "[REDACTED]"
 
 # Documented defaults, applied in addition to the user's `redact_patterns`.

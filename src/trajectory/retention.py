@@ -15,7 +15,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-log = logging.getLogger("tux_trace.retention")
+log = logging.getLogger("trajectory.retention")
 DAY_FILE = re.compile(r"^(\d{4}-\d{2}-\d{2})\.jsonl$")
 CONTENT_FILE = re.compile(r"^[0-9a-fA-F\-]{36}\.json$")
 

@@ -23,8 +23,8 @@ REQ = (b"POST /v1/messages HTTP/1.1\r\nHost: x\r\nContent-Type: application/json
 
 # The benchmark proxy must NEVER write into the real ./data directory (live traces live there).
 SCRATCH = tempfile.mkdtemp(prefix="tux_bench_")
-env = {**os.environ, "TUX_TRACE_UPSTREAM__BASE_URL": f"http://127.0.0.1:{UP}",
-       "TUX_TRACE_LISTEN__PORT": str(PX), "TUX_TRACE_DATA_DIR": SCRATCH}
+env = {**os.environ, "TRAJECTORY_UPSTREAM__BASE_URL": f"http://127.0.0.1:{UP}",
+       "TRAJECTORY_LISTEN__PORT": str(PX), "TRAJECTORY_DATA_DIR": SCRATCH}
 for kv in sys.argv[1:]:
     k, v = kv.split("=", 1)
     env[k] = v
@@ -52,7 +52,7 @@ def run(port, n=1000, warm=200):
 procs = [
     subprocess.Popen([sys.executable, str(HERE / "bench_stub.py"), str(UP)],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
-    subprocess.Popen([sys.executable, "-m", "tux_trace", "serve"], cwd=ROOT, env=env,
+    subprocess.Popen([sys.executable, "-m", "trajectory", "serve"], cwd=ROOT, env=env,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
 ]
 try:

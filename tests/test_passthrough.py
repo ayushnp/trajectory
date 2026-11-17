@@ -45,8 +45,8 @@ def test_no_buffering(proxy_factory):
 def test_upstream_down_gives_502(tmp_path):
     from starlette.testclient import TestClient
 
-    from tux_trace.app import create_app
-    from tux_trace.config import Config
+    from trajectory.app import create_app
+    from trajectory.config import Config
     app = create_app(Config(upstream={"base_url": "http://127.0.0.1:1"}, data_dir=str(tmp_path)))
     with TestClient(app) as c:
         assert c.post("/v1/messages", content=b"{}").status_code == 502

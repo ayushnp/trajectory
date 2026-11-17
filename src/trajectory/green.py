@@ -27,7 +27,7 @@ from pathlib import Path
 
 import yaml
 
-log = logging.getLogger("tux_trace.green")
+log = logging.getLogger("trajectory.green")
 NOTE = "estimated, not measured"
 PROVIDER_FOR_FORMAT = {"anthropic": "anthropic", "openai_chat": "openai", "openai_responses": "openai"}
 

@@ -1,7 +1,7 @@
 """M5: subagent attachment, confidence labels and the unattached bucket."""
 import json
 
-from tux_trace.subagents import MIN_ECHO_CHARS, SubagentAttacher, first_human_text, normalize, normalize_args
+from trajectory.subagents import MIN_ECHO_CHARS, SubagentAttacher, first_human_text, normalize, normalize_args
 
 S = 1_000_000_000
 PROMPT = "Read the file C:\\Users\\me\\proj\\a.txt and report its exact contents back, verbatim."
@@ -497,7 +497,7 @@ WIN_DIR = BS.join(["C:", "My Projects", "Tracer", "tux-trace"])       # contains
 
 
 def win_prompt(name="store.py"):
-    return f"You are a read-only helper for the project at {WIN_DIR}. Run wc on src{BS}tux_trace{BS}{name} and report it."
+    return f"You are a read-only helper for the project at {WIN_DIR}. Run wc on src{BS}trajectory{BS}{name} and report it."
 
 
 def test_a_windows_path_in_the_childs_plain_text_prompt_still_echoes_into_json_arguments():
@@ -512,13 +512,13 @@ def test_a_windows_path_in_the_childs_plain_text_prompt_still_echoes_into_json_a
 
 
 def test_plain_text_is_never_unescaped():
-    from tux_trace.subagents import normalize_text
+    from trajectory.subagents import normalize_text
     s = f"C:{BS}new{BS}tests{BS}x"
     assert normalize_text(s) == s.lower()
 
 
 def test_json_arguments_are_unescaped_so_embedded_text_matches():
-    from tux_trace.subagents import normalize_args, normalize_text
+    from trajectory.subagents import normalize_args, normalize_text
     original = f"line one\nline two C:{BS}tux"
     assert normalize_text(original) in normalize_args(json.dumps({"p": original}))
 

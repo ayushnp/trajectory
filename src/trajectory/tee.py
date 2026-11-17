@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .store import JsonlWriter
 
-log = logging.getLogger("tux_trace.tee")
+log = logging.getLogger("trajectory.tee")
 DROP_LOG_INTERVAL_S = 10.0
 
 

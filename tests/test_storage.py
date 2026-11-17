@@ -10,10 +10,10 @@ from pathlib import Path
 import httpx
 import pytest
 
-from tux_trace.content import MASK, ContentStore, Redactor
-from tux_trace.index_db import SqliteIndex
-from tux_trace.record import BUDGET, CallTrace
-from tux_trace.retention import cutoff_day, purge
+from trajectory.content import MASK, ContentStore, Redactor
+from trajectory.index_db import SqliteIndex
+from trajectory.record import BUDGET, CallTrace
+from trajectory.retention import cutoff_day, purge
 
 SECRET_KEY = "sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 SSE = [b'event: message_start\ndata: {"type":"message_start","message":{"model":"claude-haiku-5-5","usage":{"input_tokens":9}}}\n\n',
@@ -310,7 +310,7 @@ def test_index_failure_never_loses_the_jsonl_record(proxy_factory, monkeypatch):
 
 # ================================================================== capture budget
 def test_budget_reserves_and_returns_bytes():
-    from tux_trace.record import CaptureBudget
+    from trajectory.record import CaptureBudget
     b = CaptureBudget(1000)
     tr = CallTrace(method="POST", path="/x", t_received=0, budget=b)
     tr.add_req_chunk(b"x" * 400)
@@ -322,7 +322,7 @@ def test_budget_reserves_and_returns_bytes():
 
 
 def test_exhausted_budget_stops_capture_but_not_counting():
-    from tux_trace.record import CaptureBudget
+    from trajectory.record import CaptureBudget
     b = CaptureBudget(100)
     tr = CallTrace(method="POST", path="/x", t_received=0, budget=b)
     tr.add_req_chunk(b"a" * 80)
@@ -336,7 +336,7 @@ def test_exhausted_budget_stops_capture_but_not_counting():
 
 
 def test_two_calls_share_one_budget():
-    from tux_trace.record import CaptureBudget
+    from trajectory.record import CaptureBudget
     b = CaptureBudget(1000)
     t1 = CallTrace(method="POST", path="/x", t_received=0, budget=b)
     t2 = CallTrace(method="POST", path="/x", t_received=0, budget=b)
@@ -350,8 +350,8 @@ def test_two_calls_share_one_budget():
 
 
 def test_dropped_records_return_their_budget(tmp_path):
-    from tux_trace.record import CaptureBudget
-    from tux_trace.tee import Tee
+    from trajectory.record import CaptureBudget
+    from trajectory.tee import Tee
     tee = Tee(maxsize=1, data_dir=tmp_path, start_writer=False)
     budget = CaptureBudget(10**9)
     traces = []
@@ -405,11 +405,11 @@ def test_metrics_endpoint_is_valid_prometheus_text(proxy_factory):
     r = httpx.get(proxy + "/metrics")
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/plain")
     text = r.text
-    assert "# TYPE tux_trace_calls_total counter" in text and "# TYPE tux_trace_queue_depth gauge" in text
+    assert "# TYPE trajectory_calls_total counter" in text and "# TYPE trajectory_queue_depth gauge" in text
     for line in text.strip().splitlines():
         if not line.startswith("#"):
             name, value = line.split(" ")
-            assert name.startswith("tux_trace_") and float(value) == float(value)
+            assert name.startswith("trajectory_") and float(value) == float(value)
     assert "None" not in text and "null" not in text           # null stats are omitted, not printed
 
 
@@ -420,8 +420,8 @@ def test_upstream_dying_mid_stream_truncates_for_the_client_and_is_recorded(tmp_
     import threading
 
     from conftest import Server, free_port
-    from tux_trace.app import create_app
-    from tux_trace.config import Config
+    from trajectory.app import create_app
+    from trajectory.config import Config
 
     srv = socket.socket()
     srv.bind(("127.0.0.1", 0)); srv.listen(1)
@@ -454,21 +454,21 @@ def test_upstream_dying_mid_stream_truncates_for_the_client_and_is_recorded(tmp_
 
 # ================================================================== smoke command
 def test_smoke_reports_failure_clearly_when_nothing_is_listening(capsys):
-    from tux_trace.__main__ import main
+    from trajectory.__main__ import main
     with pytest.raises(SystemExit) as e:
         main(["smoke", "--url", "http://127.0.0.1:1", "--config", "config/config.yaml"])
-    assert e.value.code == 2 and "Is `tux-trace serve` running" in capsys.readouterr().out
+    assert e.value.code == 2 and "Is `trajectory serve` running" in capsys.readouterr().out
 
 
 def test_smoke_passes_against_a_real_proxy(proxy_factory, capsys, monkeypatch):
-    from tux_trace.__main__ import main
+    from trajectory.__main__ import main
     proxy, _, _ = proxy_factory(SSE)
 
     class C:                                              # point smoke at the temp data dir
         data_dir = str(proxy_factory.data_dir)
         class listen:
             host, port = "127.0.0.1", 0
-    import tux_trace.__main__ as m
+    import trajectory.__main__ as m
     monkeypatch.setattr(m, "_cfg", lambda args: C)
     with pytest.raises(SystemExit) as e:
         main(["smoke", "--url", proxy])

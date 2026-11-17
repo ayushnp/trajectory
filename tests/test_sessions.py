@@ -1,5 +1,5 @@
 """M7 server side: session aggregation, trajectory, and the honesty rules for totals."""
-from tux_trace import sessions as S
+from trajectory import sessions as S
 
 NS = 1_000_000_000
 

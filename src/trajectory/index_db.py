@@ -1,7 +1,7 @@
 """SQLite index over the JSONL records (spec section 16).
 
 JSONL is authoritative. This database is a derived, rebuildable view for querying: delete it and
-`tux-trace reindex` recreates it from the files. Writes come from the single writer thread; WAL
+`trajectory reindex` recreates it from the files. Writes come from the single writer thread; WAL
 mode lets readers (the API, a human with sqlite3) query concurrently.
 
 Tables

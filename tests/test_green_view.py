@@ -1,8 +1,8 @@
 """The Green view's aggregation: ranges stay ranges, gaps are counted not zeroed, only model calls count."""
 from datetime import datetime, timezone
 
-from tux_trace.green_view import aggregate, slim
-from tux_trace.index_db import SqliteIndex
+from trajectory.green_view import aggregate, slim
+from trajectory.index_db import SqliteIndex
 
 NOW = datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)
 

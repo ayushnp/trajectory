@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-log = logging.getLogger("tux_trace.store")
+log = logging.getLogger("trajectory.store")
 _STOP = object()
 MAX_BATCH = 500
 

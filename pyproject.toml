@@ -1,5 +1,5 @@
 [project]
-name = "tux-trace"
+name = "trajectory"
 version = "0.1.0"
 description = "Pass-through tracing proxy between coding agents and Tux"
 requires-python = ">=3.11"
@@ -17,7 +17,7 @@ dev = ["httpx>=0.27", "pytest>=8", "pytest-asyncio>=0.23"]
 green = ["ecologits"]
 
 [project.scripts]
-tux-trace = "tux_trace.__main__:main"
+trajectory = "trajectory.__main__:main"
 
 [build-system]
 requires = ["setuptools>=68"]

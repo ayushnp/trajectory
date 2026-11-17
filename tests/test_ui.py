@@ -22,7 +22,7 @@ def wait_calls(proxy, n, timeout=5):
 def test_ui_and_static_are_served(proxy_factory):
     proxy, _, _ = proxy_factory(SSE)
     page = httpx.get(proxy + "/_trace")
-    assert page.status_code == 200 and "tux-trace" in page.text
+    assert page.status_code == 200 and "trajectory" in page.text
     assert httpx.get(proxy + "/_trace/static/app.js").status_code == 200
     assert httpx.get(proxy + "/_trace/static/style.css").status_code == 200
 
