@@ -282,3 +282,49 @@ def test_true_retry_on_the_same_model_is_still_a_retry():
     m = [a_user("hi")]
     r1, r2 = chain(c, rec(m, 0, model="x"), rec(m, 1, model="x"))
     assert r1["session_id"] == r2["session_id"] and r2["outcome"]["retry_index"] == 1
+
+
+# ---------------------------------------------------------------- compaction summaries
+SUMMARY = "This session is being continued from a previous conversation that ran out of context."
+
+
+def rec_summary(msgs, t=0, key="k", model="m1"):
+    r = rec(msgs, t, key=key, model=model)
+    from trajectory.chain import is_compaction_summary
+    r["request"]["continues_prior_context"] = is_compaction_summary(
+        "anthropic", {"messages": msgs})
+    return r
+
+
+def test_summary_first_message_links_to_latest_session_even_though_no_digest_matches():
+    c = Chainer()
+    old = [a_user("start"), a_assistant_tool("t0"), a_result("t0")]
+    r_old = rec(old, 0)
+    compacted = [a_user(SUMMARY + " ... summary body"), a_user("continue")]
+    r_new = rec_summary(compacted, 10)
+    chain(c, r_old, r_new)
+    assert r_new["session_id"] != r_old["session_id"]
+    assert r_new["continued_from_session"] == r_old["session_id"]
+    assert r_new["compaction_suspected"] is True
+
+
+def test_summary_does_not_link_across_models():
+    c = Chainer()
+    r_old = rec([a_user("start")], 0, model="m1")
+    r_new = rec_summary([a_user(SUMMARY + " body")], 10, model="m2")
+    chain(c, r_old, r_new)
+    assert "continued_from_session" not in r_new
+
+
+def test_summary_with_no_live_session_starts_a_clean_session():
+    c = Chainer()
+    r_new = rec_summary([a_user(SUMMARY + " body")], 10)
+    chain(c, r_new)
+    assert "continued_from_session" not in r_new
+    assert r_new["step_index"] == 0
+
+
+def test_ordinary_first_message_is_not_a_summary():
+    from trajectory.chain import is_compaction_summary
+    assert is_compaction_summary("anthropic", {"messages": [a_user("hello")]}) is False
+    assert is_compaction_summary("openai_chat", {"messages": [a_user(SUMMARY)]}) is False

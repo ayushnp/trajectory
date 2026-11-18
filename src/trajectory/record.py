@@ -17,7 +17,7 @@ from pydantic import BaseModel
 
 from . import timing as timing_mod
 from . import usage as usage_mod
-from .chain import digest_request
+from .chain import digest_request, is_compaction_summary
 from .parsers import make_parser
 from .subagents import first_human_text
 from .tools import extract_results
@@ -82,6 +82,7 @@ class Request(BaseModel):
     prefix_digests: list[str] = []      # per-message, 16 hex chars; the chainer's input
     human_indexes: list[int] = []       # which messages are human turns (not tool results)
     opaque_reasoning: bool = False      # history contained reasoning we hash around, never decode
+    continues_prior_context: bool = False  # first message is a harness compaction summary (chain hint)
     tool_results: list[dict] = []       # results this request delivers, joined to the calls they answer
 
 
@@ -265,6 +266,7 @@ class CallTrace:
             d = digest_request(self.fmt, body)
             if d is not None:
                 info["prefix_digests"], info["human_indexes"], info["opaque_reasoning"] = d
+            info["continues_prior_context"] = is_compaction_summary(self.fmt, body)
         except Exception:
             self.parse_failed = True
         try:
