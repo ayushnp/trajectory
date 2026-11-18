@@ -160,6 +160,27 @@ def digest_request(fmt: str, body: dict) -> tuple[list[str], list[int], bool] | 
     return None
 
 
+# ---------------------------------------------------------------- compaction summaries
+# Harnesses that compact (Claude Code, Tux) restart the history with a summary message. That
+# message replaces the start of the conversation, so digests cannot match the old session's prefix.
+COMPACTION_MARKER = "This session is being continued from a previous conversation"
+
+
+def is_compaction_summary(fmt: str, body: dict) -> bool:
+    """True when the first message of a request is a harness-written compaction summary."""
+    msgs = body.get("messages")
+    if fmt != "anthropic" or not isinstance(msgs, list) or not msgs or not isinstance(msgs[0], dict):
+        return False
+    content = msgs[0].get("content")
+    if isinstance(content, str):
+        text = content
+    elif isinstance(content, list):
+        text = " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+    else:
+        return False
+    return text.lstrip().startswith(COMPACTION_MARKER)
+
+
 # ---------------------------------------------------------------- linking
 @dataclass(slots=True)
 class _Head:
@@ -237,6 +258,11 @@ class Chainer:
             n = _common_prefix(h.digests, digests)
             if n > best_l or (n == best_l and best is not None and n > 0 and h.t_last > best.t_last):
                 best, best_l = h, n
+        if req.get("continues_prior_context") and heads:
+            # The summary replaced the start of the history, so no digest can match. The summary is
+            # the harness's own statement that this continues the most recent live session.
+            best = max(heads, key=lambda h: h.t_last)
+            best_l = max(best_l, 1)
         if best is not None and best_l >= 1:
             self._new_session(rec, key, digests, now, ok, continued_from=best.session_id, compaction=True)
         else:
